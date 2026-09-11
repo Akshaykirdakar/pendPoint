@@ -11,6 +11,36 @@ import '../models/stock_log.dart';
 /// A full bootstrap snapshot of the shop, loaded once at startup and then kept
 /// in memory by [AppState] for a snappy counter UI. Persistence happens through
 /// the granular [Repository] methods below.
+class CoreSnapshot {
+  final List<Brand> brands;
+  final List<Product> products;
+  final Map<String, Stock> stock;
+  final List<Staff> staff;
+  final AppSettings settings;
+  final int billCounter;
+
+  CoreSnapshot({
+    required this.brands,
+    required this.products,
+    required this.stock,
+    required this.staff,
+    required this.settings,
+    required this.billCounter,
+  });
+}
+
+class HistorySnapshot {
+  final List<StockLog> logs;
+  final List<Bill> bills;
+  final List<Customer> customers;
+
+  HistorySnapshot({
+    required this.logs,
+    required this.bills,
+    required this.customers,
+  });
+}
+
 class Snapshot {
   final List<Brand> brands;
   final List<Product> products;
@@ -33,12 +63,42 @@ class Snapshot {
     required this.settings,
     required this.billCounter,
   });
+
+  CoreSnapshot get core => CoreSnapshot(
+        brands: brands,
+        products: products,
+        stock: stock,
+        staff: staff,
+        settings: settings,
+        billCounter: billCounter,
+      );
+
+  HistorySnapshot get history => HistorySnapshot(
+        logs: logs,
+        bills: bills,
+        customers: customers,
+      );
+
+  factory Snapshot.merge(CoreSnapshot core, HistorySnapshot history) => Snapshot(
+        brands: core.brands,
+        products: core.products,
+        stock: core.stock,
+        logs: history.logs,
+        bills: history.bills,
+        customers: history.customers,
+        staff: core.staff,
+        settings: core.settings,
+        billCounter: core.billCounter,
+      );
 }
 
 /// Persistence boundary. Swap [InMemoryRepository] for [FirestoreRepository]
 /// in main.dart once Firebase is configured — nothing else changes.
 abstract class Repository {
-  Future<Snapshot> loadAll();
+  Future<CoreSnapshot> loadCore();
+  Future<HistorySnapshot> loadHistory();
+  Future<Snapshot> loadAll() async =>
+      Snapshot.merge(await loadCore(), await loadHistory());
 
   Future<int> nextBillNumber();
 

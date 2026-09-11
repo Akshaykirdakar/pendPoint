@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 
@@ -43,6 +45,10 @@ class AppState extends ChangeNotifier {
   AppSettings settings = AppSettings();
   bool loading = true;
   Object? bootstrapError;
+  bool historyLoading = false;
+  Object? historyError;
+  int _bootstrapGeneration = 0;
+  int? _historyGeneration;
 
   // ---- current cart ----
   final List<CartLine> cart = [];
@@ -50,30 +56,74 @@ class AppState extends ChangeNotifier {
   final List<Payment> payments = [];
 
   Future<void> bootstrap() async {
+    final generation = ++_bootstrapGeneration;
+    _historyGeneration = null;
     bootstrapError = null;
+    historyError = null;
     loading = true;
+    historyLoading = false;
+    logs = [];
+    bills = [];
+    customers = [];
     notifyListeners();
+    var shouldLoadHistory = false;
     try {
       // A hung Firestore call (dropped connection, silently-blocked request,
       // stuck IndexedDB/persistence layer on web) should surface as an
       // error the UI can show, not spin the splash screen forever.
-      final s = await repo.loadAll().timeout(
+      final s = await repo.loadCore().timeout(
         const Duration(seconds: 20),
         onTimeout: () => throw StateError(
             'Timed out loading shop data — check your connection and Firestore rules.'),
       );
+      if (generation != _bootstrapGeneration) return;
       brands = s.brands;
       products = s.products;
       stock = s.stock;
+      staff = s.staff;
+      settings = s.settings;
+      historyLoading = true;
+      historyError = null;
+      _historyGeneration = generation;
+      shouldLoadHistory = true;
+    } catch (error) {
+      if (generation != _bootstrapGeneration) return;
+      bootstrapError = error;
+    } finally {
+      if (generation != _bootstrapGeneration) return;
+      loading = false;
+      notifyListeners();
+    }
+    if (!shouldLoadHistory || generation != _bootstrapGeneration) return;
+    unawaited(_loadHistory(generation));
+  }
+
+  Future<void> _loadHistory(int generation) async {
+    if (_historyGeneration != generation) return;
+    try {
+      final s = await repo.loadHistory();
+      if (generation != _bootstrapGeneration || _historyGeneration != generation) {
+        return;
+      }
       logs = s.logs;
       bills = s.bills;
       customers = s.customers;
-      staff = s.staff;
-      settings = s.settings;
-    } catch (error) {
-      bootstrapError = error;
+      historyError = null;
+    } catch (error, stackTrace) {
+      debugPrint('[pend] history load failed: $error');
+      debugPrintStack(
+        stackTrace: stackTrace,
+        label: '[pend] history load stack',
+      );
+      if (generation != _bootstrapGeneration || _historyGeneration != generation) {
+        return;
+      }
+      historyError = error;
     } finally {
-      loading = false;
+      if (generation != _bootstrapGeneration || _historyGeneration != generation) {
+        return;
+      }
+      historyLoading = false;
       notifyListeners();
     }
   }

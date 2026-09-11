@@ -26,6 +26,7 @@
 // ---------------------------------------------------------------------------
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 import '../models/app_settings.dart';
 import '../models/bill.dart';
@@ -40,65 +41,107 @@ import 'repository.dart';
 
 class FirestoreRepository implements Repository {
   final FirebaseFirestore db;
+  int _lastBrandsCount = 0;
+  int _lastProductsCount = 0;
+  int _lastStockCount = 0;
+
   FirestoreRepository({FirebaseFirestore? firestore})
       : db = firestore ?? FirebaseFirestore.instance;
 
   @override
-  Future<Snapshot> loadAll() async {
-    final brandsSnap = await db.collection('brands').get();
-    final productsSnap = await db.collection('products').get();
-    final stockSnap = await db.collection('stock').get();
-    final logsSnap = await db
-        .collection('stockLogs')
-        .orderBy('createdAt', descending: true)
-        .limit(500)
-        .get();
-    final billsSnap = await db
-        .collection('bills')
-        .orderBy('createdAt', descending: true)
-        .limit(500)
-        .get();
-    final customersSnap = await db.collection('customers').get();
-    final staffSnap = await db.collection('staff').get();
-    final counters = await db.doc('meta/counters').get();
-    final settingsDoc = await db.doc('meta/settings').get();
+  Future<CoreSnapshot> loadCore() async {
+    final brandsSnap = await _readCollection(
+      'brands',
+      db.collection('brands'),
+    );
+    final productsSnap = await _readCollection(
+      'products',
+      db.collection('products'),
+    );
+    final stockSnap = await _readCollection(
+      'stock',
+      db.collection('stock'),
+    );
+    final staffSnap = await _readCollection(
+      'staff',
+      db.collection('staff'),
+    );
+    final counters = await _readDocument('meta/counters');
+    final settingsDoc = await _readDocument('meta/settings');
 
-    final bills = <Bill>[];
-    for (final b in billsSnap.docs) {
-      final itemsSnap = await b.reference.collection('billItems').get();
-      final items =
-          itemsSnap.docs.map((d) => BillItem.fromMap(d.data())).toList();
-      bills.add(Bill.fromMap(b.id, b.data(), items));
-    }
-    final customers = <Customer>[];
-    for (final c in customersSnap.docs) {
-      final ledgerSnap = await c.reference
-          .collection('ledgerEntries')
-          .orderBy('createdAt')
-          .get();
-      final ledger =
-          ledgerSnap.docs.map((d) => LedgerEntry.fromMap(d.data())).toList();
-      customers.add(Customer.fromMap(c.id, c.data(), ledger));
-    }
+    _lastBrandsCount = brandsSnap.size;
+    _lastProductsCount = productsSnap.size;
+    _lastStockCount = stockSnap.size;
 
-    return Snapshot(
-      brands:
-          brandsSnap.docs.map((d) => Brand.fromMap(d.id, d.data())).toList(),
+    return CoreSnapshot(
+      brands: brandsSnap.docs.map((d) => Brand.fromMap(d.id, d.data())).toList(),
       products: productsSnap.docs
           .map((d) => Product.fromMap(d.id, d.data()))
           .toList(),
       stock: {
         for (final d in stockSnap.docs) d.id: Stock.fromMap(d.id, d.data())
       },
-      logs: logsSnap.docs.map((d) => StockLog.fromMap(d.id, d.data())).toList(),
-      bills: bills,
-      customers: customers,
       staff: staffSnap.docs.map((d) => Staff.fromMap(d.id, d.data())).toList(),
       settings: settingsDoc.exists
           ? AppSettings.fromMap(settingsDoc.data()!)
           : AppSettings(),
       billCounter: (counters.data()?['bill'] ?? 1000) as int,
     );
+  }
+
+  @override
+  Future<HistorySnapshot> loadHistory() async {
+    final logsSnap = await _readCollection(
+      'stockLogs',
+      db.collection('stockLogs').orderBy('createdAt', descending: true).limit(500),
+    );
+    final billsSnap = await _readCollection(
+      'bills',
+      db.collection('bills').orderBy('createdAt', descending: true).limit(500),
+    );
+    final customersSnap = await _readCollection(
+      'customers',
+      db.collection('customers'),
+    );
+
+    final bills = <Bill>[];
+    for (final b in billsSnap.docs) {
+      final itemsSnap = await _readCollection(
+        'bills/${b.id}/billItems',
+        b.reference.collection('billItems'),
+      );
+      final items =
+          itemsSnap.docs.map((d) => BillItem.fromMap(d.data())).toList();
+      bills.add(Bill.fromMap(b.id, b.data(), items));
+    }
+    final customers = <Customer>[];
+    for (final c in customersSnap.docs) {
+      final ledgerSnap = await _readCollection(
+        'customers/${c.id}/ledgerEntries',
+        c.reference.collection('ledgerEntries').orderBy('createdAt'),
+      );
+      final ledger =
+          ledgerSnap.docs.map((d) => LedgerEntry.fromMap(d.data())).toList();
+      customers.add(Customer.fromMap(c.id, c.data(), ledger));
+    }
+
+    debugPrint(
+        '[pend] fs: totals brands=$_lastBrandsCount products=$_lastProductsCount stock=$_lastStockCount bills=${bills.length} customers=${customers.length}');
+
+    return HistorySnapshot(
+      logs: logsSnap.docs.map((d) => StockLog.fromMap(d.id, d.data())).toList(),
+      bills: bills,
+      customers: customers,
+    );
+  }
+
+  @override
+  Future<Snapshot> loadAll() async {
+    final core = await loadCore();
+    final history = await loadHistory();
+    debugPrint(
+        '[pend] fs: totals brands=${core.brands.length} products=${core.products.length} stock=${core.stock.length} bills=${history.bills.length} customers=${history.customers.length}');
+    return Snapshot.merge(core, history);
   }
 
   @override
@@ -180,4 +223,21 @@ class FirestoreRepository implements Repository {
   @override
   Future<void> saveSettings(AppSettings settings) =>
       db.doc('meta/settings').set(settings.toMap(), SetOptions(merge: true));
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _readCollection(
+    String label,
+    Query<Map<String, dynamic>> query,
+  ) async {
+    debugPrint('[pend] fs: reading $label…');
+    final snap = await query.get();
+    debugPrint('[pend] fs: $label = ${snap.size}');
+    return snap;
+  }
+
+  Future<DocumentSnapshot<Map<String, dynamic>>> _readDocument(String path) async {
+    debugPrint('[pend] fs: reading $path…');
+    final snap = await db.doc(path).get();
+    debugPrint('[pend] fs: $path = ${snap.data()?.length ?? 0}');
+    return snap;
+  }
 }

@@ -15,12 +15,23 @@ import 'seed_data.dart';
 /// the [Repository] contract. Swap for [FirestoreRepository] to persist.
 class InMemoryRepository implements Repository {
   int _counter = 1000;
+  late final Snapshot _seed = buildSeed();
+
+  @override
+  Future<CoreSnapshot> loadCore() async {
+    _counter = _seed.billCounter;
+    return _seed.core;
+  }
+
+  @override
+  Future<HistorySnapshot> loadHistory() async {
+    return _seed.history;
+  }
 
   @override
   Future<Snapshot> loadAll() async {
-    final snap = buildSeed();
-    _counter = snap.billCounter;
-    return snap;
+    _counter = _seed.billCounter;
+    return _seed;
   }
 
   @override

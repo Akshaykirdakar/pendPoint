@@ -338,6 +338,41 @@ class EmptyState extends StatelessWidget {
       );
 }
 
+class InlineLoadingNotice extends StatelessWidget {
+  final String text;
+  const InlineLoadingNotice(this.text, {super.key});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        decoration: cardDecoration(context),
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: context.c.brand,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                text,
+                style: TextStyle(
+                  color: context.c.ink2,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+}
+
 void showToast(BuildContext context, String msg) {
   ScaffoldMessenger.of(context)
     ..clearSnackBars()
