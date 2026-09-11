@@ -159,6 +159,11 @@ class _DataLoadFailure extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall),
                 const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: () => context.read<AppState>().bootstrap(),
+                  child: const Text('Retry'),
+                ),
+                const SizedBox(height: 8),
                 OutlinedButton(
                   onPressed: () => FirebaseAuth.instance.signOut(),
                   child: const Text('Sign out'),

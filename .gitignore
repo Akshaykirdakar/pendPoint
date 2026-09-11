@@ -10,6 +10,9 @@ build/
 .vscode/
 *.iml
 
+# Node (tools/ — the Firestore seeding/admin scripts)
+tools/node_modules/
+
 # Local Android SDK paths and signing credentials.
 android/local.properties
 android/key.properties
