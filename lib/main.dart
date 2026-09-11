@@ -92,7 +92,13 @@ class _AuthenticationGateState extends State<_AuthenticationGate> {
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const _Splash();
+            // If Firebase Auth's own stream never emits (e.g. a hung
+            // persistence/session lookup on web), this is where it sits
+            // forever — surface *that* instead of an unlabeled splash.
+            return const _Splash(label: 'साइन-इन तपासत आहे... · Checking sign-in...');
+          }
+          if (snapshot.hasError) {
+            return _DataLoadFailure(error: snapshot.error!);
           }
           final user = snapshot.data;
           if (user == null) {
@@ -102,14 +108,19 @@ class _AuthenticationGateState extends State<_AuthenticationGate> {
           // Kick off (or re-kick off, for a different user) exactly once.
           if (_bootstrappedUid != user.uid) {
             _bootstrappedUid = user.uid;
-            WidgetsBinding.instance.addPostFrameCallback(
-              (_) => context.read<AppState>().bootstrap(),
-            );
-            return const _Splash();
+            debugPrint('[pend] bootstrapping AppState for uid=${user.uid}');
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              context.read<AppState>().bootstrap().then(
+                    (_) => debugPrint('[pend] bootstrap finished'),
+                  );
+            });
+            return const _Splash(label: 'दुकानाचा डेटा आणत आहे... · Loading shop data...');
           }
           return Consumer<AppState>(
             builder: (context, app, _) {
-              if (app.loading) return const _Splash();
+              if (app.loading) {
+                return const _Splash(label: 'दुकानाचा डेटा आणत आहे... · Loading shop data...');
+              }
               if (app.bootstrapError != null) {
                 return _DataLoadFailure(error: app.bootstrapError!);
               }
@@ -160,7 +171,8 @@ class _DataLoadFailure extends StatelessWidget {
 }
 
 class _Splash extends StatelessWidget {
-  const _Splash();
+  final String? label;
+  const _Splash({this.label});
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: context.c.brand,
@@ -173,6 +185,21 @@ class _Splash extends StatelessWidget {
                     size: 26,
                     weight: FontWeight.w800,
                     color: context.c.brandInk)),
+            if (label != null) ...[
+              const SizedBox(height: 18),
+              SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2.4, color: context.c.brandInk),
+              ),
+              const SizedBox(height: 10),
+              Text(label!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: context.c.brandInk.withValues(alpha: 0.9),
+                      fontSize: 12.5)),
+            ],
           ]),
         ),
       );

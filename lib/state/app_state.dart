@@ -54,7 +54,14 @@ class AppState extends ChangeNotifier {
     loading = true;
     notifyListeners();
     try {
-      final s = await repo.loadAll();
+      // A hung Firestore call (dropped connection, silently-blocked request,
+      // stuck IndexedDB/persistence layer on web) should surface as an
+      // error the UI can show, not spin the splash screen forever.
+      final s = await repo.loadAll().timeout(
+        const Duration(seconds: 20),
+        onTimeout: () => throw StateError(
+            'Timed out loading shop data — check your connection and Firestore rules.'),
+      );
       brands = s.brands;
       products = s.products;
       stock = s.stock;
