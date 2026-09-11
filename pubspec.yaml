@@ -19,8 +19,9 @@ dependencies:
   cloud_firestore: ^6.9.0
   firebase_auth: ^6.6.1
   firebase_storage: ^13.5.0
-  blue_thermal_printer: ^1.2.3   # Bluetooth thermal printing (bill sent as image for Devanagari)
   permission_handler: ^11.3.1    # runtime Bluetooth permission (Android 12+)
+  unified_esc_pos_printer: ^3.4.0
+  image: ^4.9.2
 
   # --- Firebase (backend). Uncomment after `flutterfire configure`. ---
   # firebase_core: ^3.6.0

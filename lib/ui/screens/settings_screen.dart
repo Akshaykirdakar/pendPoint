@@ -1,6 +1,6 @@
-import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:unified_esc_pos_printer/unified_esc_pos_printer.dart';
 
 import '../../models/app_settings.dart';
 import '../../services/thermal_printer_service.dart';
@@ -189,7 +189,7 @@ class SettingsScreen extends StatelessWidget {
       }
       return;
     }
-    final devices = await service.bondedDevices();
+    final devices = await service.discoverDevices();
     if (!context.mounted) return;
     if (devices.isEmpty) {
       showToast(context,
@@ -227,10 +227,10 @@ class SettingsScreen extends StatelessWidget {
                       Icon(Icons.print_outlined, color: c.ink2),
                       const SizedBox(width: 12),
                       Expanded(
-                          child: Text(d.name ?? 'Unknown device',
+                          child: Text(d.name,
                               style: TextStyle(
                                   fontWeight: FontWeight.w700, color: c.ink))),
-                      Text(d.address ?? '',
+                      Text(d.address,
                           style: TextStyle(fontSize: 11.5, color: c.muted)),
                     ]),
                   ),
@@ -241,7 +241,7 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Future<void> _connectPrinter(BuildContext screenContext, BuildContext sheetContext,
-      AppState app, BluetoothDevice device) async {
+      AppState app, BluetoothPrinterDevice device) async {
     final ok = await ThermalPrinterService.instance.connect(device);
     if (sheetContext.mounted) Navigator.pop(sheetContext);
     if (!ok) {
