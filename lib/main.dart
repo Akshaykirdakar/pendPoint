@@ -106,6 +106,17 @@ class _AuthenticationGateState extends State<_AuthenticationGate> {
             return const SignInScreen();
           }
           // Kick off (or re-kick off, for a different user) exactly once.
+          // IMPORTANT: this must NOT early-return its own bare _Splash() —
+          // it used to, and that _Splash had no Consumer<AppState> above it,
+          // so AppState.notifyListeners() after bootstrap() finished had no
+          // listener in the current tree to react to. The outer
+          // StreamBuilder only rebuilds on auth *stream* events, not on
+          // AppState changes, so the UI was stuck on that static splash
+          // forever even though bootstrap had genuinely completed — visible
+          // as "[pend] bootstrap finished" in the logs with the screen still
+          // showing "Loading shop data...". Falling through to the single
+          // Consumer<AppState> below on every path fixes that: it's always
+          // present to catch the notifyListeners() that bootstrap fires.
           if (_bootstrappedUid != user.uid) {
             _bootstrappedUid = user.uid;
             debugPrint('[pend] bootstrapping AppState for uid=${user.uid}');
@@ -114,7 +125,6 @@ class _AuthenticationGateState extends State<_AuthenticationGate> {
                     (_) => debugPrint('[pend] bootstrap finished'),
                   );
             });
-            return const _Splash(label: 'दुकानाचा डेटा आणत आहे... · Loading shop data...');
           }
           return Consumer<AppState>(
             builder: (context, app, _) {
@@ -123,6 +133,9 @@ class _AuthenticationGateState extends State<_AuthenticationGate> {
               }
               if (app.bootstrapError != null) {
                 return _DataLoadFailure(error: app.bootstrapError!);
+              }
+              if (app.products.isEmpty) {
+                return const _NoDataYet();
               }
               return const RootShell();
             },
@@ -158,6 +171,47 @@ class _DataLoadFailure extends StatelessWidget {
                     maxLines: 4,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: () => context.read<AppState>().bootstrap(),
+                  child: const Text('Retry'),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton(
+                  onPressed: () => FirebaseAuth.instance.signOut(),
+                  child: const Text('Sign out'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+}
+
+/// Shown when the core load succeeds but the catalogue is genuinely empty —
+/// distinct from [_DataLoadFailure], which means the load itself failed.
+/// Firestore-only concern: seeding is Admin-SDK-only (see FIREBASE_SEEDING.md),
+/// there is no client-side seeding path to fall back to.
+class _NoDataYet extends StatelessWidget {
+  const _NoDataYet();
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('📦', style: TextStyle(fontSize: 48)),
+                const SizedBox(height: 16),
+                Text('अजून डेटा नाही · No data yet',
+                    style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 8),
+                const Text(
+                  'Run the Firestore seeder (tools/seed_firestore.mjs) to add the catalogue, then retry.',
+                  textAlign: TextAlign.center,
+                ),
                 const SizedBox(height: 16),
                 FilledButton(
                   onPressed: () => context.read<AppState>().bootstrap(),

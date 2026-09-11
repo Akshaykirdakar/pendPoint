@@ -30,7 +30,10 @@ class KhataScreen extends StatelessWidget {
             sub:
                 '${cs.where((x) => x.outstanding > 0).length} customers with dues'),
         const SizedBox(height: 16),
-        CardList([
+        if (app.historyLoading && cs.isEmpty)
+          const HistoryLoadingNote()
+        else
+          CardList([
           for (final cu in cs)
             InkWell(
               onTap: () => Navigator.of(context).push(MaterialPageRoute(

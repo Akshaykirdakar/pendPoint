@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 
@@ -44,37 +46,81 @@ class AppState extends ChangeNotifier {
   bool loading = true;
   Object? bootstrapError;
 
+  // History (bills, customers+ledgers, stock logs) loads separately, in the
+  // background, after the core catalogue/stock — see [bootstrap]. Reports/
+  // Khata/Returns/History screens watch these to show an inline loading
+  // note instead of a false "no data" empty state; Home/Sell/Stock don't
+  // depend on history at all and never wait on it.
+  bool historyLoading = false;
+  Object? historyError;
+
+  // Bumped on every bootstrap() call; a history load only applies its result
+  // if it's still the most recent one, so an overlapping/second bootstrap
+  // (e.g. a Retry tap, or "Reset sample data") can't have its history
+  // clobbered by a slower, now-stale load from the previous cycle.
+  int _bootstrapSeq = 0;
+
   // ---- current cart ----
   final List<CartLine> cart = [];
   String? cartCustomerId;
   final List<Payment> payments = [];
 
+  /// Loads the catalogue/stock/settings/staff first and shows the counter
+  /// screen as soon as that's ready, then loads history (bills, customers,
+  /// stock logs) in the background without blocking the UI.
   Future<void> bootstrap() async {
     bootstrapError = null;
     loading = true;
+    historyError = null;
+    final seq = ++_bootstrapSeq;
     notifyListeners();
     try {
       // A hung Firestore call (dropped connection, silently-blocked request,
       // stuck IndexedDB/persistence layer on web) should surface as an
       // error the UI can show, not spin the splash screen forever.
-      final s = await repo.loadAll().timeout(
+      final core = await repo.loadCore().timeout(
         const Duration(seconds: 20),
         onTimeout: () => throw StateError(
             'Timed out loading shop data — check your connection and Firestore rules.'),
       );
-      brands = s.brands;
-      products = s.products;
-      stock = s.stock;
-      logs = s.logs;
-      bills = s.bills;
-      customers = s.customers;
-      staff = s.staff;
-      settings = s.settings;
+      brands = core.brands;
+      products = core.products;
+      stock = core.stock;
+      staff = core.staff;
+      settings = core.settings;
     } catch (error) {
       bootstrapError = error;
     } finally {
       loading = false;
       notifyListeners();
+    }
+    if (bootstrapError != null) return; // core failed — don't load history
+    unawaited(_loadHistory(seq));
+  }
+
+  Future<void> _loadHistory(int seq) async {
+    historyLoading = true;
+    historyError = null;
+    notifyListeners();
+    try {
+      final history = await repo.loadHistory().timeout(
+        const Duration(seconds: 20),
+        onTimeout: () =>
+            throw StateError('Timed out loading bill/customer history.'),
+      );
+      if (seq != _bootstrapSeq) return; // superseded by a newer bootstrap
+      logs = history.logs;
+      bills = history.bills;
+      customers = history.customers;
+    } catch (error) {
+      if (seq != _bootstrapSeq) return;
+      historyError = error;
+      debugPrint('[pend] history load error: $error');
+    } finally {
+      if (seq == _bootstrapSeq) {
+        historyLoading = false;
+        notifyListeners();
+      }
     }
   }
 

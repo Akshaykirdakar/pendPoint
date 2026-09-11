@@ -37,9 +37,11 @@ class HistoryScreen extends StatelessWidget {
     return PendScaffold(
       titleMr: 'साठा इतिहास',
       titleEn: 'Stock history',
-      body: logs.isEmpty
-          ? const EmptyState('🕓', 'कोणतीही नोंद नाही · No history')
-          : CardList([
+      body: (app.historyLoading && logs.isEmpty)
+          ? const HistoryLoadingNote()
+          : logs.isEmpty
+              ? const EmptyState('🕓', 'कोणतीही नोंद नाही · No history')
+              : CardList([
               for (final l in logs)
                 Padding(
                   padding: const EdgeInsets.all(12),

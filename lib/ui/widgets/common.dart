@@ -320,6 +320,30 @@ class CardList extends StatelessWidget {
   }
 }
 
+/// Small inline note shown on Reports/Khata/Returns/History while bills,
+/// customers, or stock logs are still loading in the background — after the
+/// counter screen has already appeared — so a genuinely-still-loading list
+/// doesn't read as a false "no data" empty state.
+class HistoryLoadingNote extends StatelessWidget {
+  const HistoryLoadingNote({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 22),
+      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2, color: c.muted)),
+        const SizedBox(width: 9),
+        Text('इतिहास लोड होत आहे... · Loading history...',
+            style: TextStyle(fontSize: 12.5, color: c.muted)),
+      ]),
+    );
+  }
+}
+
 /// Small empty state.
 class EmptyState extends StatelessWidget {
   final String emoji;

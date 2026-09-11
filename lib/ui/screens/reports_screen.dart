@@ -82,6 +82,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
       titleEn: 'Reports',
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         _seg(context),
+        if (app.historyLoading && app.bills.isEmpty) ...[
+          const SizedBox(height: 4),
+          const HistoryLoadingNote(),
+        ],
         const SizedBox(height: 14),
         Row(children: [
           Expanded(

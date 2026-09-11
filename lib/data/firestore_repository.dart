@@ -26,6 +26,7 @@
 // ---------------------------------------------------------------------------
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 import '../models/app_settings.dart';
 import '../models/bill.dart';
@@ -43,25 +44,80 @@ class FirestoreRepository implements Repository {
   FirestoreRepository({FirebaseFirestore? firestore})
       : db = firestore ?? FirebaseFirestore.instance;
 
+  /// Catalogue + stock + settings + staff — enough to open the counter
+  /// screen. See [Repository.loadCore].
   @override
-  Future<Snapshot> loadAll() async {
+  Future<CoreSnapshot> loadCore() async {
+    debugPrint('[pend] fs: reading brands...');
     final brandsSnap = await db.collection('brands').get();
+    debugPrint('[pend] fs: brands = ${brandsSnap.size}');
+
+    debugPrint('[pend] fs: reading products...');
     final productsSnap = await db.collection('products').get();
+    debugPrint('[pend] fs: products = ${productsSnap.size}');
+
+    debugPrint('[pend] fs: reading stock...');
     final stockSnap = await db.collection('stock').get();
+    debugPrint('[pend] fs: stock = ${stockSnap.size}');
+
+    debugPrint('[pend] fs: reading staff...');
+    final staffSnap = await db.collection('staff').get();
+    debugPrint('[pend] fs: staff = ${staffSnap.size}');
+
+    debugPrint('[pend] fs: reading meta/counters...');
+    final counters = await db.doc('meta/counters').get();
+    debugPrint('[pend] fs: meta/counters = ${counters.exists ? 1 : 0}');
+
+    debugPrint('[pend] fs: reading meta/settings...');
+    final settingsDoc = await db.doc('meta/settings').get();
+    debugPrint('[pend] fs: meta/settings = ${settingsDoc.exists ? 1 : 0}');
+
+    final brands =
+        brandsSnap.docs.map((d) => Brand.fromMap(d.id, d.data())).toList();
+    final products =
+        productsSnap.docs.map((d) => Product.fromMap(d.id, d.data())).toList();
+    final stock = {
+      for (final d in stockSnap.docs) d.id: Stock.fromMap(d.id, d.data())
+    };
+    debugPrint('[pend] fs: core totals — '
+        'brands=${brands.length}, products=${products.length}, '
+        'stock=${stock.length}');
+
+    return CoreSnapshot(
+      brands: brands,
+      products: products,
+      stock: stock,
+      staff: staffSnap.docs.map((d) => Staff.fromMap(d.id, d.data())).toList(),
+      settings: settingsDoc.exists
+          ? AppSettings.fromMap(settingsDoc.data()!)
+          : AppSettings(),
+      billCounter: (counters.data()?['bill'] ?? 1000) as int,
+    );
+  }
+
+  /// Bills (+ items), stock logs, and customers (+ ledgers) — loaded in the
+  /// background after [loadCore]. See [Repository.loadHistory].
+  @override
+  Future<HistorySnapshot> loadHistory() async {
+    debugPrint('[pend] fs: reading stockLogs...');
     final logsSnap = await db
         .collection('stockLogs')
         .orderBy('createdAt', descending: true)
         .limit(500)
         .get();
+    debugPrint('[pend] fs: stockLogs = ${logsSnap.size}');
+
+    debugPrint('[pend] fs: reading bills...');
     final billsSnap = await db
         .collection('bills')
         .orderBy('createdAt', descending: true)
         .limit(500)
         .get();
+    debugPrint('[pend] fs: bills = ${billsSnap.size}');
+
+    debugPrint('[pend] fs: reading customers...');
     final customersSnap = await db.collection('customers').get();
-    final staffSnap = await db.collection('staff').get();
-    final counters = await db.doc('meta/counters').get();
-    final settingsDoc = await db.doc('meta/settings').get();
+    debugPrint('[pend] fs: customers = ${customersSnap.size}');
 
     final bills = <Bill>[];
     for (final b in billsSnap.docs) {
@@ -81,24 +137,13 @@ class FirestoreRepository implements Repository {
       customers.add(Customer.fromMap(c.id, c.data(), ledger));
     }
 
-    return Snapshot(
-      brands:
-          brandsSnap.docs.map((d) => Brand.fromMap(d.id, d.data())).toList(),
-      products: productsSnap.docs
-          .map((d) => Product.fromMap(d.id, d.data()))
-          .toList(),
-      stock: {
-        for (final d in stockSnap.docs) d.id: Stock.fromMap(d.id, d.data())
-      },
-      logs: logsSnap.docs.map((d) => StockLog.fromMap(d.id, d.data())).toList(),
-      bills: bills,
-      customers: customers,
-      staff: staffSnap.docs.map((d) => Staff.fromMap(d.id, d.data())).toList(),
-      settings: settingsDoc.exists
-          ? AppSettings.fromMap(settingsDoc.data()!)
-          : AppSettings(),
-      billCounter: (counters.data()?['bill'] ?? 1000) as int,
-    );
+    final logs =
+        logsSnap.docs.map((d) => StockLog.fromMap(d.id, d.data())).toList();
+    debugPrint('[pend] fs: history totals — '
+        'bills=${bills.length}, customers=${customers.length}, '
+        'logs=${logs.length}');
+
+    return HistorySnapshot(logs: logs, bills: bills, customers: customers);
   }
 
   @override

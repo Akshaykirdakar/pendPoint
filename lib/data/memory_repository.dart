@@ -16,11 +16,36 @@ import 'seed_data.dart';
 class InMemoryRepository implements Repository {
   int _counter = 1000;
 
+  // Set by loadCore() and consumed by loadHistory() so a single bootstrap
+  // cycle's two staged reads come from the same seed instance. A *new*
+  // bootstrap cycle (e.g. "Reset sample data") calls loadCore() again, which
+  // regenerates a fresh seed — this is not a cross-cycle cache.
+  Snapshot? _pendingSeed;
+
   @override
-  Future<Snapshot> loadAll() async {
+  Future<CoreSnapshot> loadCore() async {
     final snap = buildSeed();
+    _pendingSeed = snap;
     _counter = snap.billCounter;
-    return snap;
+    return CoreSnapshot(
+      brands: snap.brands,
+      products: snap.products,
+      stock: snap.stock,
+      staff: snap.staff,
+      settings: snap.settings,
+      billCounter: snap.billCounter,
+    );
+  }
+
+  @override
+  Future<HistorySnapshot> loadHistory() async {
+    final snap = _pendingSeed ?? buildSeed();
+    _pendingSeed = null;
+    return HistorySnapshot(
+      logs: snap.logs,
+      bills: snap.bills,
+      customers: snap.customers,
+    );
   }
 
   @override

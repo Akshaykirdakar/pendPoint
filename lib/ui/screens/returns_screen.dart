@@ -26,7 +26,10 @@ class ReturnsScreen extends StatelessWidget {
             'बिल रद्द केल्यास साठा परत जमा होतो · Voiding a bill restores its stock. Bills are kept (marked void), never deleted.',
             style: TextStyle(color: c.ink2, fontSize: 13)),
         const SizedBox(height: 14),
-        CardList([
+        if (app.historyLoading && bills.isEmpty)
+          const HistoryLoadingNote()
+        else
+          CardList([
           for (final b in recent)
             Padding(
               padding: const EdgeInsets.all(12),

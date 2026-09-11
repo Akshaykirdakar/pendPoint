@@ -8,9 +8,10 @@ import '../models/staff.dart';
 import '../models/stock.dart';
 import '../models/stock_log.dart';
 
-/// A full bootstrap snapshot of the shop, loaded once at startup and then kept
-/// in memory by [AppState] for a snappy counter UI. Persistence happens through
-/// the granular [Repository] methods below.
+/// A full bootstrap snapshot of the shop. Kept as a convenience for repository
+/// implementations (e.g. [InMemoryRepository] builds one seed and splits it
+/// into [CoreSnapshot]/[HistorySnapshot]) — the app itself only ever asks for
+/// the two staged pieces below.
 class Snapshot {
   final List<Brand> brands;
   final List<Product> products;
@@ -35,10 +36,54 @@ class Snapshot {
   });
 }
 
+/// Everything the counter UI needs to open for business: catalogue, current
+/// stock, settings, and staff. Deliberately excludes bills/customers/logs —
+/// [AppState.bootstrap] shows the POS as soon as this loads, without waiting
+/// on potentially-large history.
+class CoreSnapshot {
+  final List<Brand> brands;
+  final List<Product> products;
+  final Map<String, Stock> stock;
+  final List<Staff> staff;
+  final AppSettings settings;
+  final int billCounter;
+
+  CoreSnapshot({
+    required this.brands,
+    required this.products,
+    required this.stock,
+    required this.staff,
+    required this.settings,
+    required this.billCounter,
+  });
+}
+
+/// The potentially-large history data — bills (with items), stock logs, and
+/// customers (with their full ledgers) — loaded in the background after
+/// [CoreSnapshot], so a shop with years of bills doesn't delay opening the
+/// counter screen.
+class HistorySnapshot {
+  final List<StockLog> logs;
+  final List<Bill> bills;
+  final List<Customer> customers;
+
+  HistorySnapshot({
+    required this.logs,
+    required this.bills,
+    required this.customers,
+  });
+}
+
 /// Persistence boundary. Swap [InMemoryRepository] for [FirestoreRepository]
 /// in main.dart once Firebase is configured — nothing else changes.
 abstract class Repository {
-  Future<Snapshot> loadAll();
+  /// Catalogue + stock + settings + staff — everything needed to open the
+  /// counter screen. Load this first and show the UI as soon as it resolves.
+  Future<CoreSnapshot> loadCore();
+
+  /// Bills, stock logs, and customer ledgers. Load this in the background
+  /// after [loadCore] — the counter UI does not wait on it.
+  Future<HistorySnapshot> loadHistory();
 
   Future<int> nextBillNumber();
 
