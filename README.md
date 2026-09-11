@@ -62,10 +62,8 @@ Nothing else changes — the app talks only to the `Repository` interface.
 - **Thermal printing** (`bill_screen.dart` / `qr_sheet_screen.dart`): shows the
   flow and the *render-as-image* note (so Marathi/Devanagari prints correctly).
   Add `blue_thermal_printer` + a bitmap render of the receipt.
-- **Auth**: PINs are demo constants. Production = Firebase Auth + hashed PINs
-  and the role claims the `firestore.rules` already expect.
-- **Product photos**: colored swatches stand in for `photoUrl` (Firebase Storage
-  + on-device cache for offline).
+- **Auth**: production authorization is Firebase Auth plus the protected
+  `staff/{uid}.role` record enforced by Firestore and Storage rules.
 
 ---
 

@@ -5,7 +5,9 @@
 class Staff {
   final String id;
   final String name;
+  final String? email;
   final String role; // 'admin' | 'staff'
+  final bool active;
   final bool canOverride;
   final double maxDiscountPct;
   final String pin;
@@ -13,7 +15,9 @@ class Staff {
   const Staff({
     required this.id,
     required this.name,
+    this.email,
     required this.role,
+    this.active = true,
     this.canOverride = true,
     this.maxDiscountPct = 5,
     this.pin = '0000',
@@ -23,7 +27,9 @@ class Staff {
 
   Map<String, dynamic> toMap() => {
         'name': name,
+        if (email != null) 'email': email,
         'role': role,
+        'active': active,
         'canOverridePrice': canOverride,
         'maxDiscountPct': maxDiscountPct,
         // 'pinHash': ... // never store a raw PIN in production
@@ -32,7 +38,9 @@ class Staff {
   factory Staff.fromMap(String id, Map<String, dynamic> m) => Staff(
         id: id,
         name: (m['name'] ?? '') as String,
+        email: m['email'] as String?,
         role: (m['role'] ?? 'staff') as String,
+        active: (m['active'] ?? true) as bool,
         canOverride: (m['canOverridePrice'] ?? true) as bool,
         maxDiscountPct: (m['maxDiscountPct'] ?? 5).toDouble(),
         pin: (m['pin'] ?? '0000') as String,

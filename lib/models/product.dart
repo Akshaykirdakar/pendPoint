@@ -49,7 +49,7 @@ class Product {
     String? nameMr,
     int? bagWeightKg,
     String? swatch,
-    String? photoUrl,
+    Object? photoUrl = _unchanged,
     double? fullBagPrice,
     double? perKgPrice,
     double? costPrice,
@@ -63,7 +63,9 @@ class Product {
         nameMr: nameMr ?? this.nameMr,
         bagWeightKg: bagWeightKg ?? this.bagWeightKg,
         swatch: swatch ?? this.swatch,
-        photoUrl: photoUrl ?? this.photoUrl,
+        photoUrl: identical(photoUrl, _unchanged)
+            ? this.photoUrl
+            : photoUrl as String?,
         fullBagPrice: fullBagPrice ?? this.fullBagPrice,
         perKgPrice: perKgPrice ?? this.perKgPrice,
         costPrice: costPrice ?? this.costPrice,
@@ -104,3 +106,5 @@ class Product {
         qr: (m['qrCode'] ?? 'PEND-$id') as String,
       );
 }
+
+const Object _unchanged = Object();

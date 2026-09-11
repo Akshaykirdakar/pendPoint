@@ -15,12 +15,14 @@ node tools/seed_firestore.mjs
 ```
 
 The script refuses to run if products already exist. Use `--force` only to
-merge the standard sample data into an existing database. It sets the owner's
-Firebase Auth custom claim to `role: admin`, creates the matching `staff/{uid}`
-record, and seeds brands, products, stock, customers, and `meta` documents.
+merge the standard sample data into an existing database. It creates the
+owner's protected `staff/{uid}` record with `role: "admin"`, and seeds brands,
+products, stock, customers, and `meta` documents. Firestore and Storage rules
+use this staff record as their single authorization source of truth.
 
-After it completes, sign out and sign back in on the app so Firebase refreshes
-the owner's ID token with the new admin claim.
+For an existing project, create/verify this document using the Firebase
+Console or a trusted Admin SDK environment only: `staff/{authenticated uid}`
+with `role: "admin"`. A normal app user cannot create or promote this record.
 
 Never commit the service-account JSON. `.gitignore` excludes keystores and
 local Android settings; keep the service-account key outside the project too.

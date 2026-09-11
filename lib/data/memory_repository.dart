@@ -6,6 +6,7 @@ import '../models/enums.dart';
 import '../models/product.dart';
 import '../models/stock.dart';
 import '../models/stock_log.dart';
+import '../models/staff.dart';
 import 'repository.dart';
 import 'seed_data.dart';
 
@@ -53,6 +54,8 @@ class InMemoryRepository implements Repository {
 
   @override
   Future<void> upsertBrand(Brand brand) async {}
+  @override
+  Future<void> upsertStaff(Staff staff) async {}
   @override
   Future<void> upsertProduct(Product product, {Stock? initialStock}) async {}
   @override

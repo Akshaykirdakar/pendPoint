@@ -72,7 +72,7 @@ class ProductDetailScreen extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
           ),
           alignment: Alignment.center,
-          child: Text(p.swatch, style: const TextStyle(fontSize: 60)),
+          child: PhotoSwatch(p, size: 130),
         ),
         const SizedBox(height: 12),
         if (brand != null)

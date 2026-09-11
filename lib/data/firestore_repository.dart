@@ -165,6 +165,12 @@ class FirestoreRepository implements Repository {
       .set(brand.toMap(), SetOptions(merge: true));
 
   @override
+  Future<void> upsertStaff(Staff staff) => db
+      .collection('staff')
+      .doc(staff.id)
+      .set(staff.toMap(), SetOptions(merge: true));
+
+  @override
   Future<void> upsertProduct(Product product, {Stock? initialStock}) async {
     await db
         .collection('products')

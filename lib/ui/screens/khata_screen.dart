@@ -34,42 +34,45 @@ class KhataScreen extends StatelessWidget {
           const HistoryLoadingNote()
         else
           CardList([
-          for (final cu in cs)
-            InkWell(
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => CustomerScreen(customerId: cu.id))),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(children: [
-                  CircleAvatar(
-                      backgroundColor: c.surface2, child: const Text('👤')),
-                  const SizedBox(width: 12),
-                  Expanded(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                        Text(cu.name,
-                            style: baloo(
-                                size: 14.5,
-                                weight: FontWeight.w700,
-                                color: c.ink)),
-                        Text(cu.mobile,
-                            style: TextStyle(fontSize: 12, color: c.ink2)),
-                      ])),
-                  Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                    Text(money(cu.outstanding),
-                        style: baloo(
-                            size: 15,
-                            weight: FontWeight.w800,
-                            color: cu.outstanding > 0 ? c.serious : c.good)),
-                    Text(cu.outstanding > 0 ? 'बाकी due' : 'चुकते clear',
-                        style: TextStyle(fontSize: 10.5, color: c.muted)),
+            for (final cu in cs)
+              InkWell(
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => CustomerScreen(customerId: cu.id))),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(children: [
+                    CircleAvatar(
+                        backgroundColor: c.surface2, child: const Text('👤')),
+                    const SizedBox(width: 12),
+                    Expanded(
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                          Text(cu.name,
+                              style: baloo(
+                                  size: 14.5,
+                                  weight: FontWeight.w700,
+                                  color: c.ink)),
+                          Text(cu.mobile,
+                              style: TextStyle(fontSize: 12, color: c.ink2)),
+                        ])),
+                    Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(money(cu.outstanding),
+                              style: baloo(
+                                  size: 15,
+                                  weight: FontWeight.w800,
+                                  color:
+                                      cu.outstanding > 0 ? c.serious : c.good)),
+                          Text(cu.outstanding > 0 ? 'बाकी due' : 'चुकते clear',
+                              style: TextStyle(fontSize: 10.5, color: c.muted)),
+                        ]),
                   ]),
-                ]),
+                ),
               ),
-            ),
-        ]),
+          ]),
       ]),
     );
   }

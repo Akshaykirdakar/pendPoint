@@ -26,6 +26,18 @@ class AppSettings {
     this.printerAddress,
   });
 
+  AppSettings copy() => AppSettings(
+        shop: shop,
+        lang: lang,
+        theme: theme,
+        lowDefaultBags: lowDefaultBags,
+        floorOn: floorOn,
+        gateOverride: gateOverride,
+        gateOverridePct: gateOverridePct,
+        printerName: printerName,
+        printerAddress: printerAddress,
+      );
+
   Map<String, dynamic> toMap() => {
         'shop': shop,
         'lang': lang.name,

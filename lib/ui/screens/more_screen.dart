@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 
 import '../../utils/theme.dart';
+import '../../state/app_state.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 import 'alerts_screen.dart';
@@ -16,13 +19,19 @@ class MoreScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    final isAdmin = app.staff.any((s) =>
+        s.id == FirebaseAuth.instance.currentUser?.uid &&
+        s.isAdmin &&
+        s.active);
     final rows = <(IconData, String, String, Widget)>[
-      (
-        Icons.sell_rounded,
-        'कॅटलॉग · Catalogue',
-        'Brands, products, prices',
-        const CatalogueScreen()
-      ),
+      if (isAdmin)
+        (
+          Icons.sell_rounded,
+          'कॅटलॉग · Catalogue',
+          'Brands, products, prices',
+          const CatalogueScreen()
+        ),
       (
         Icons.qr_code_2_rounded,
         'QR शीट · QR sheet',

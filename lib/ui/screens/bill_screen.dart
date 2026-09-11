@@ -83,42 +83,45 @@ class _BillScreenState extends State<BillScreen> {
         RepaintBoundary(
           key: _receiptKey,
           child: Container(
-          decoration: BoxDecoration(
-              color: c.surface2,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: c.line, style: BorderStyle.solid)),
-          padding: const EdgeInsets.all(14),
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Center(
-                child: Text(app.settings.shop,
-                    style: baloo(
-                        size: 14, weight: FontWeight.w700, color: c.ink))),
-            Center(
-                child: Text(
-                    'बिल #${bill.billNumber} · ${dateTimeShort(bill.at)}',
-                    style: mono.copyWith(color: c.ink2))),
-            if (bill.customerName.isNotEmpty)
-              Center(
-                  child: Text('ग्राहक: ${bill.customerName}',
-                      style: mono.copyWith(color: c.ink2))),
-            dashes(),
-            for (final it in bill.items)
-              li('${app.productOf(it.productId)?.nameMr ?? ''} ${it.saleType == SaleType.bag ? '${it.qty.round()}×गोणी' : kg(it.qty)}',
-                  money(it.lineTotal)),
-            dashes(),
-            li('उप-बेरीज', money(bill.subtotal)),
-            if (bill.discountTotal > 0)
-              li('सूट', '–${money(bill.discountTotal)}'),
-            li('एकूण TOTAL', money(bill.total), bold: true),
-            dashes(),
-            for (final p in bill.payments)
-              li(p.mode.name.toUpperCase(), money(p.amount)),
-            const SizedBox(height: 8),
-            Center(
-                child: Text('धन्यवाद! · Thank you 🙏',
-                    style: mono.copyWith(color: c.muted))),
-          ]),
+            decoration: BoxDecoration(
+                color: c.surface2,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: c.line, style: BorderStyle.solid)),
+            padding: const EdgeInsets.all(14),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                      child: Text(app.settings.shop,
+                          style: baloo(
+                              size: 14,
+                              weight: FontWeight.w700,
+                              color: c.ink))),
+                  Center(
+                      child: Text(
+                          'बिल #${bill.billNumber} · ${dateTimeShort(bill.at)}',
+                          style: mono.copyWith(color: c.ink2))),
+                  if (bill.customerName.isNotEmpty)
+                    Center(
+                        child: Text('ग्राहक: ${bill.customerName}',
+                            style: mono.copyWith(color: c.ink2))),
+                  dashes(),
+                  for (final it in bill.items)
+                    li('${app.productOf(it.productId)?.nameMr ?? ''} ${it.saleType == SaleType.bag ? '${it.qty.round()}×गोणी' : kg(it.qty)}',
+                        money(it.lineTotal)),
+                  dashes(),
+                  li('उप-बेरीज', money(bill.subtotal)),
+                  if (bill.discountTotal > 0)
+                    li('सूट', '–${money(bill.discountTotal)}'),
+                  li('एकूण TOTAL', money(bill.total), bold: true),
+                  dashes(),
+                  for (final p in bill.payments)
+                    li(p.mode.name.toUpperCase(), money(p.amount)),
+                  const SizedBox(height: 8),
+                  Center(
+                      child: Text('धन्यवाद! · Thank you 🙏',
+                          style: mono.copyWith(color: c.muted))),
+                ]),
           ),
         ),
         const SizedBox(height: 12),
@@ -166,7 +169,8 @@ class _BillScreenState extends State<BillScreen> {
   Future<void> _print(BuildContext context, AppState app) async {
     final address = app.settings.printerAddress;
     if (address == null) {
-      showToast(context, 'सेटिंग्जमध्ये प्रिंटर जोडा · Pair a printer in Settings first');
+      showToast(context,
+          'सेटिंग्जमध्ये प्रिंटर जोडा · Pair a printer in Settings first');
       return;
     }
     setState(() => _printing = true);
@@ -174,7 +178,8 @@ class _BillScreenState extends State<BillScreen> {
       final bytes = await _captureReceipt();
       if (bytes == null) {
         if (context.mounted) {
-          showToast(context, 'बिलाची प्रतिमा तयार करता आली नाही · Could not render receipt');
+          showToast(context,
+              'बिलाची प्रतिमा तयार करता आली नाही · Could not render receipt');
         }
         return;
       }
@@ -182,7 +187,8 @@ class _BillScreenState extends State<BillScreen> {
           .ensureConnected(address, app.settings.printerName);
       if (!connected) {
         if (context.mounted) {
-          showToast(context, 'प्रिंटरशी जोडता आले नाही · Could not connect to printer');
+          showToast(context,
+              'प्रिंटरशी जोडता आले नाही · Could not connect to printer');
         }
         return;
       }

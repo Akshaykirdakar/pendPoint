@@ -110,7 +110,7 @@ class PhotoSwatch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tint = _map[product.swatch] ?? context.c.brand;
-    return Container(
+    final fallback = Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
@@ -120,6 +120,23 @@ class PhotoSwatch extends StatelessWidget {
       ),
       alignment: Alignment.center,
       child: Text(product.swatch, style: TextStyle(fontSize: size * 0.48)),
+    );
+    final url = product.photoUrl;
+    if (url == null ||
+        url.trim().isEmpty ||
+        !(Uri.tryParse(url)?.hasScheme ?? false)) {
+      return fallback;
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(size * .24),
+      child: Image.network(url,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.low,
+          errorBuilder: (_, __, ___) => fallback,
+          loadingBuilder: (_, child, progress) =>
+              progress == null ? child : fallback),
     );
   }
 }

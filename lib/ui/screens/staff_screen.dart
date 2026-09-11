@@ -1,6 +1,7 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-
+import '../../models/staff.dart';
 import '../../state/app_state.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
@@ -8,89 +9,137 @@ import '../widgets/pend_scaffold.dart';
 
 class StaffScreen extends StatelessWidget {
   const StaffScreen({super.key});
-
+  bool _isAdmin(AppState app) => app.staff.any((s) =>
+      s.id == FirebaseAuth.instance.currentUser?.uid && s.isAdmin && s.active);
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
-    final c = context.c;
+    final admin = _isAdmin(app);
     return PendScaffold(
-      titleMr: 'कर्मचारी',
-      titleEn: 'Staff & PIN',
-      body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(
-            'कर्मचारी व भाव-बदल अधिकार · Staff logins and who may discount below catalogue price.',
-            style: TextStyle(color: c.ink2, fontSize: 13)),
-        const SizedBox(height: 14),
-        CardList([
-          for (final s in app.staff)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(children: [
-                Container(
-                    width: 46,
-                    height: 46,
-                    decoration: BoxDecoration(
-                        color: s.isAdmin
-                            ? c.brand.withValues(alpha: 0.16)
-                            : c.surface2,
-                        borderRadius: BorderRadius.circular(11)),
-                    alignment: Alignment.center,
-                    child: Text(s.isAdmin ? '👑' : '🧑‍💼',
-                        style: const TextStyle(fontSize: 20))),
-                const SizedBox(width: 12),
-                Expanded(
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                      Text(s.name,
-                          style: baloo(
-                              size: 14.5,
-                              weight: FontWeight.w700,
-                              color: c.ink)),
-                      Text(
-                          s.isAdmin
-                              ? 'मालक · Admin — full rights'
-                              : 'स्टाफ · Staff — max ${s.maxDiscountPct.round()}% discount',
-                          style: TextStyle(fontSize: 12, color: c.ink2)),
-                    ])),
-              ]),
-            ),
-        ]),
-        SectionHeader('भाव-बदल संरक्षण · Override guard'),
-        Container(
-          decoration: cardDecoration(context),
-          padding: const EdgeInsets.all(14),
-          child: Column(children: [
-            Text(
-                'Staff need Owner PIN to discount beyond their limit, and no price can go below the product\'s floor.',
-                style: TextStyle(fontSize: 12.5, color: c.ink2)),
-            const SizedBox(height: 8),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('PIN मागा · Require PIN for large discounts',
-                  style:
-                      TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
-              value: app.settings.gateOverride,
-              activeThumbColor: c.brand,
-              onChanged: (v) => app.updateSettings((s) => s.gateOverride = v),
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('किमान भाव लागू · Enforce price floor',
-                  style:
-                      TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
-              value: app.settings.floorOn,
-              activeThumbColor: c.brand,
-              onChanged: (v) => app.updateSettings((s) => s.floorOn = v),
-            ),
+        titleMr: 'कर्मचारी',
+        titleEn: 'Staff management',
+        actions: admin
+            ? [BarAction('＋ Add staff', onTap: () => _edit(context, null))]
+            : [],
+        body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(
+              admin
+                  ? 'Manage protected staff profiles.'
+                  : 'Staff profiles are managed by an administrator.',
+              style: TextStyle(color: context.c.ink2)),
+          const SizedBox(height: 12),
+          CardList([
+            for (final s in app.staff)
+              Material(
+                  color: context.c.surface,
+                  child: ListTile(
+                      title: Text(s.name),
+                      subtitle: Text(
+                          '${s.email ?? s.id}\n${s.isAdmin ? 'Admin' : 'Staff'} · ${s.active ? 'Active' : 'Inactive'} · ${s.canOverride ? 'Override ${s.maxDiscountPct.round()}%' : 'No override'}'),
+                      isThreeLine: true,
+                      trailing: admin
+                          ? IconButton(
+                              icon: const Icon(Icons.edit_outlined),
+                              onPressed: () => _edit(context, s))
+                          : null))
           ]),
-        ),
-        const SizedBox(height: 12),
-        Text(
-            'Demo PINs — Owner 1234, Staff 1111. In production: Firebase Auth + hashed PINs, never stored in plaintext.',
-            style: TextStyle(fontSize: 11.5, color: c.muted)),
-      ]),
-    );
+        ]));
+  }
+
+  Future<void> _edit(BuildContext context, Staff? old) async {
+    final app = context.read<AppState>();
+    final name = TextEditingController(text: old?.name ?? '');
+    final uid = TextEditingController(text: old?.id ?? '');
+    final email = TextEditingController(text: old?.email ?? '');
+    final max = TextEditingController(text: '${old?.maxDiscountPct ?? 5}');
+    var role = old?.role ?? 'staff';
+    var active = old?.active ?? true;
+    var override = old?.canOverride ?? true;
+    await showDialog(
+        context: context,
+        builder: (dialog) => StatefulBuilder(
+            builder: (dialog, setDialog) => AlertDialog(
+                    title: Text(old == null ? 'Add staff' : 'Edit staff'),
+                    content: SingleChildScrollView(
+                        child:
+                            Column(mainAxisSize: MainAxisSize.min, children: [
+                      TextField(
+                          controller: name,
+                          decoration:
+                              const InputDecoration(labelText: 'Name *')),
+                      TextField(
+                          controller: email,
+                          decoration: const InputDecoration(
+                              labelText: 'Email / identifier')),
+                      if (old == null)
+                        TextField(
+                            controller: uid,
+                            decoration: const InputDecoration(
+                                labelText: 'Authenticated UID *',
+                                helperText:
+                                    'Provision Firebase Auth securely before adding.')),
+                      DropdownButtonFormField<String>(
+                          initialValue: role,
+                          items: const [
+                            DropdownMenuItem(
+                                value: 'staff', child: Text('Staff')),
+                            DropdownMenuItem(
+                                value: 'admin', child: Text('Admin'))
+                          ],
+                          onChanged: (v) =>
+                              setDialog(() => role = v ?? 'staff')),
+                      SwitchListTile(
+                          title: const Text('Active'),
+                          value: active,
+                          onChanged: (v) => setDialog(() => active = v)),
+                      SwitchListTile(
+                          title: const Text('Can override price'),
+                          value: override,
+                          onChanged: (v) => setDialog(() => override = v)),
+                      TextField(
+                          controller: max,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                              labelText: 'Maximum discount %')),
+                    ])),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(dialog),
+                          child: const Text('Cancel')),
+                      FilledButton(
+                          onPressed: () async {
+                            final pct = double.tryParse(max.text);
+                            if (name.text.trim().isEmpty ||
+                                (old == null && uid.text.trim().isEmpty) ||
+                                pct == null ||
+                                pct < 0 ||
+                                pct > 100) {
+                              showToast(context,
+                                  'Enter name, authenticated UID, and a 0–100 discount');
+                              return;
+                            }
+                            try {
+                              await app.saveStaff(Staff(
+                                  id: old?.id ?? uid.text.trim(),
+                                  name: name.text.trim(),
+                                  email: email.text.trim().isEmpty
+                                      ? null
+                                      : email.text.trim(),
+                                  role: role,
+                                  active: active,
+                                  canOverride: override,
+                                  maxDiscountPct: pct));
+                              if (dialog.mounted) Navigator.pop(dialog);
+                              if (context.mounted) {
+                                showToast(context, 'Staff saved');
+                              }
+                            } catch (e) {
+                              if (context.mounted) {
+                                showToast(context, 'Save failed: $e');
+                              }
+                            }
+                          },
+                          child: const Text('Save'))
+                    ])));
   }
 }

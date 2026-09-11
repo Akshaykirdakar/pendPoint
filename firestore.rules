@@ -1,15 +1,17 @@
 rules_version = '2';
 
 // पेंड Point — Firestore security rules.
-// Model: the shop owner (admin) and counter staff are authenticated with
-// Firebase Auth; their role is stored on a custom claim (`role`) or in
-// staff/{uid}. Catalogue & price edits are admin-only; staff may bill and
-// read. Tighten `isStaff()` to your real auth once wired.
+// Model: the shop owner role is stored in the protected staff/{uid} document.
+// It is not inferred from client-side data or an email address.
 service cloud.firestore {
   match /databases/{database}/documents {
 
     function isSignedIn() { return request.auth != null; }
-    function isAdmin() { return isSignedIn() && request.auth.token.role == 'admin'; }
+    function isAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/staff/$(request.auth.uid))
+        && get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.role == 'admin';
+    }
     function isStaff() { return isSignedIn(); } // any signed-in staff member
 
     // Catalogue: everyone signed in reads; only admin writes prices/products.
@@ -34,9 +36,20 @@ service cloud.firestore {
       match /ledgerEntries/{eid} { allow read, create: if isStaff(); allow update, delete: if isAdmin(); }
     }
 
-    // Staff records & meta: admin only.
-    match /staff/{id} { allow read: if isStaff(); allow write: if isAdmin(); }
-    match /meta/{doc} { allow read: if isStaff(); allow write: if isStaff(); } // counters need staff writes
+    // The first admin staff record is provisioned through the Firebase Console
+    // or Admin SDK; clients cannot create or elevate staff records.
+    match /staff/{id} {
+      allow read: if isStaff();
+      allow create: if isAdmin();
+      // An administrator may manage other staff, but cannot accidentally
+      // demote/deactivate their own account through the client.
+      allow update: if isAdmin() && (id != request.auth.uid ||
+        (request.resource.data.role == resource.data.role &&
+         request.resource.data.active == resource.data.active));
+      allow delete: if false;
+    }
+    match /meta/counters { allow read, write: if isStaff(); }
+    match /meta/settings { allow read: if isStaff(); allow write: if isAdmin(); }
 
     match /{document=**} { allow read, write: if false; }
   }

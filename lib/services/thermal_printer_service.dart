@@ -76,7 +76,8 @@ class ThermalPrinterService {
   /// Connects to [address]/[name] if not already connected to that device.
   Future<bool> ensureConnected(String address, String? name) async {
     if (isConnected) return true;
-    return connect(BluetoothPrinterDevice(name: name ?? 'Printer', address: address));
+    return connect(
+        BluetoothPrinterDevice(name: name ?? 'Printer', address: address));
   }
 
   /// Prints a bitmap (a rendered bill) via ESC/POS raster mode, then cuts.

@@ -18,10 +18,6 @@ if (!existing.empty && !force) {
 }
 
 const owner = await admin.auth().getUserByEmail(ownerEmail);
-await admin.auth().setCustomUserClaims(owner.uid, {
-  ...owner.customClaims,
-  role: 'admin',
-});
 
 const brands = [
   ['b1', {name: 'Godrej', nameMr: 'गोदरेज'}],
@@ -68,4 +64,4 @@ batch.set(db.doc('meta/settings'), {
 await batch.commit();
 
 console.log(`Seeded ${brands.length} brands, ${products.length} products, stock, customers, owner staff record, and metadata.`);
-console.log(`Admin claim assigned to ${owner.email}. Sign out and back in on the app to refresh its token.`);
+console.log(`Admin staff role assigned to ${owner.email} (${owner.uid}).`);

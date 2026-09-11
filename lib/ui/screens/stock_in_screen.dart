@@ -30,7 +30,8 @@ class _StockInScreenState extends State<StockInScreen> {
   void initState() {
     super.initState();
     final app = context.read<AppState>();
-    _pid = widget.productId ?? (app.products.isEmpty ? null : app.products.first.id);
+    _pid = widget.productId ??
+        (app.products.isEmpty ? null : app.products.first.id);
   }
 
   @override

@@ -88,6 +88,7 @@ abstract class Repository {
   Future<int> nextBillNumber();
 
   Future<void> upsertBrand(Brand brand);
+  Future<void> upsertStaff(Staff staff);
   Future<void> upsertProduct(Product product, {Stock? initialStock});
   Future<void> deleteProduct(String productId);
 

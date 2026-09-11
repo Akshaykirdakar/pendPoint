@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:unified_esc_pos_printer/unified_esc_pos_printer.dart';
 
@@ -9,14 +10,41 @@ import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  late final TextEditingController _shopCtrl;
+  bool _shopSaving = false;
+  bool _shopChanged = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _shopCtrl =
+        TextEditingController(text: context.read<AppState>().settings.shop);
+    _shopCtrl.addListener(() => setState(() => _shopChanged =
+        _shopCtrl.text.trim() != context.read<AppState>().settings.shop));
+  }
+
+  @override
+  void dispose() {
+    _shopCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final c = context.c;
-    final shopCtrl = TextEditingController(text: app.settings.shop);
+    final isAdmin = app.staff.any((s) =>
+        s.id == FirebaseAuth.instance.currentUser?.uid &&
+        s.isAdmin &&
+        s.active);
 
     return PendScaffold(
       titleMr: 'सेटिंग्ज',
@@ -28,27 +56,31 @@ class SettingsScreen extends StatelessWidget {
                 style: TextStyle(
                     fontSize: 12, fontWeight: FontWeight.w700, color: c.ink2))),
         TextField(
-            controller: shopCtrl,
+            controller: _shopCtrl,
             onSubmitted: (v) {
-              app.updateSettings((s) => s.shop = v);
+              _save(context, app, (s) => s.shop = v);
               showToast(context, 'जतन झाले · Saved');
             }),
+        BigButton.brand(_shopSaving ? 'Saving...' : 'Save shop name',
+            onTap: (!isAdmin || !_shopChanged || _shopSaving)
+                ? null
+                : () => _saveShop(app)),
         SectionHeader('भाषा · Language'),
         _seg(context, [
           (
             'मराठी',
             app.settings.lang == AppLang.mr,
-            () => app.updateSettings((s) => s.lang = AppLang.mr)
+            () => _save(context, app, (s) => s.lang = AppLang.mr)
           ),
           (
             'दोन्ही Both',
             app.settings.lang == AppLang.both,
-            () => app.updateSettings((s) => s.lang = AppLang.both)
+            () => _save(context, app, (s) => s.lang = AppLang.both)
           ),
           (
             'English',
             app.settings.lang == AppLang.en,
-            () => app.updateSettings((s) => s.lang = AppLang.en)
+            () => _save(context, app, (s) => s.lang = AppLang.en)
           ),
         ]),
         SectionHeader('देखावा · Appearance'),
@@ -56,17 +88,17 @@ class SettingsScreen extends StatelessWidget {
           (
             'ऑटो',
             app.settings.theme == AppThemeMode.system,
-            () => app.updateSettings((s) => s.theme = AppThemeMode.system)
+            () => _save(context, app, (s) => s.theme = AppThemeMode.system)
           ),
           (
             '☀️ Light',
             app.settings.theme == AppThemeMode.light,
-            () => app.updateSettings((s) => s.theme = AppThemeMode.light)
+            () => _save(context, app, (s) => s.theme = AppThemeMode.light)
           ),
           (
             '🌙 Dark',
             app.settings.theme == AppThemeMode.dark,
-            () => app.updateSettings((s) => s.theme = AppThemeMode.dark)
+            () => _save(context, app, (s) => s.theme = AppThemeMode.dark)
           ),
         ]),
         SectionHeader('प्रिंटर · Bluetooth printer'),
@@ -80,9 +112,8 @@ class SettingsScreen extends StatelessWidget {
                   app.settings.printerAddress == null
                       ? Icons.print_disabled_outlined
                       : Icons.print_outlined,
-                  color: app.settings.printerAddress == null
-                      ? c.muted
-                      : c.good),
+                  color:
+                      app.settings.printerAddress == null ? c.muted : c.good),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -145,6 +176,19 @@ class SettingsScreen extends StatelessWidget {
                     )),
           ]),
         ),
+        SectionHeader('खाते · Account'),
+        Container(
+          decoration: cardDecoration(context),
+          padding: const EdgeInsets.all(14),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(FirebaseAuth.instance.currentUser?.email ?? 'Signed-in user',
+                style: TextStyle(fontWeight: FontWeight.w700, color: c.ink)),
+            const SizedBox(height: 10),
+            BigButton.danger('बाहेर पडा · Sign Out',
+                onTap: () => _signOut(context)),
+          ]),
+        ),
         SectionHeader('प्रोटोटाइप · Prototype'),
         Container(
           decoration: cardDecoration(context),
@@ -177,6 +221,53 @@ class SettingsScreen extends StatelessWidget {
         ),
       ]),
     );
+  }
+
+  Future<void> _saveShop(AppState app) async {
+    setState(() => _shopSaving = true);
+    try {
+      await app.updateSettings((s) => s.shop = _shopCtrl.text.trim());
+      if (mounted) {
+        setState(() => _shopChanged = false);
+        showToast(context, 'Saved successfully');
+      }
+    } catch (e) {
+      if (mounted) showToast(context, 'Save failed: $e');
+    } finally {
+      if (mounted) setState(() => _shopSaving = false);
+    }
+  }
+
+  Future<void> _save(BuildContext context, AppState app,
+      void Function(AppSettings) mutate) async {
+    try {
+      await app.updateSettings(mutate);
+      if (context.mounted) showToast(context, 'जतन झाले · Saved');
+    } catch (_) {
+      if (context.mounted) {
+        showToast(
+            context, 'सेटिंग्ज जतन करता आल्या नाहीत · Unable to save settings');
+      }
+    }
+  }
+
+  Future<void> _signOut(BuildContext context) async {
+    final yes = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+              title: const Text('बाहेर पडा · Sign Out'),
+              content: const Text(
+                  'तुम्हाला साइन आउट करायचे आहे का?\nAre you sure you want to sign out?'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('Cancel')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('Sign Out'))
+              ],
+            ));
+    if (yes == true) await FirebaseAuth.instance.signOut();
   }
 
   Future<void> _showPrinterPicker(BuildContext context, AppState app) async {
@@ -214,9 +305,11 @@ class SettingsScreen extends StatelessWidget {
                       height: 4,
                       margin: const EdgeInsets.only(bottom: 12),
                       decoration: BoxDecoration(
-                          color: c.line, borderRadius: BorderRadius.circular(9)))),
+                          color: c.line,
+                          borderRadius: BorderRadius.circular(9)))),
               Text('प्रिंटर निवडा · Choose printer',
-                  style: baloo(size: 18, weight: FontWeight.w700, color: c.ink)),
+                  style:
+                      baloo(size: 18, weight: FontWeight.w700, color: c.ink)),
               const SizedBox(height: 12),
               for (final d in devices)
                 InkWell(
@@ -240,13 +333,17 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _connectPrinter(BuildContext screenContext, BuildContext sheetContext,
-      AppState app, BluetoothPrinterDevice device) async {
+  Future<void> _connectPrinter(
+      BuildContext screenContext,
+      BuildContext sheetContext,
+      AppState app,
+      BluetoothPrinterDevice device) async {
     final ok = await ThermalPrinterService.instance.connect(device);
     if (sheetContext.mounted) Navigator.pop(sheetContext);
     if (!ok) {
       if (screenContext.mounted) {
-        showToast(screenContext, 'प्रिंटरशी जोडता आले नाही · Could not connect');
+        showToast(
+            screenContext, 'प्रिंटरशी जोडता आले नाही · Could not connect');
       }
       return;
     }

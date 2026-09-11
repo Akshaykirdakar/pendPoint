@@ -78,7 +78,8 @@ class _SignInScreenState extends State<SignInScreen> {
                       TextFormField(
                         controller: _password,
                         obscureText: true,
-                        decoration: const InputDecoration(labelText: 'Password'),
+                        decoration:
+                            const InputDecoration(labelText: 'Password'),
                         validator: (value) => value != null && value.length >= 6
                             ? null
                             : 'Password must be at least 6 characters.',
@@ -94,9 +95,7 @@ class _SignInScreenState extends State<SignInScreen> {
                         onPressed: _busy ? null : _submit,
                         child: Padding(
                           padding: const EdgeInsets.all(12),
-                          child: Text(_busy
-                              ? 'Please wait…'
-                              : 'Sign in'),
+                          child: Text(_busy ? 'Please wait…' : 'Sign in'),
                         ),
                       ),
                     ],

@@ -252,8 +252,7 @@ class _PendingConfirmCard extends StatelessWidget {
           Expanded(
               child: BigButton.ghost('↺ पुन्हा · Rescan', onTap: onRescan)),
           const SizedBox(width: 10),
-          Expanded(
-              child: BigButton.brand('उघडा · Open', onTap: onConfirm)),
+          Expanded(child: BigButton.brand('उघडा · Open', onTap: onConfirm)),
         ]),
       ]),
     );

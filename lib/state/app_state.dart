@@ -79,10 +79,10 @@ class AppState extends ChangeNotifier {
       // stuck IndexedDB/persistence layer on web) should surface as an
       // error the UI can show, not spin the splash screen forever.
       final core = await repo.loadCore().timeout(
-        const Duration(seconds: 20),
-        onTimeout: () => throw StateError(
-            'Timed out loading shop data — check your connection and Firestore rules.'),
-      );
+            const Duration(seconds: 20),
+            onTimeout: () => throw StateError(
+                'Timed out loading shop data — check your connection and Firestore rules.'),
+          );
       brands = core.brands;
       products = core.products;
       stock = core.stock;
@@ -104,10 +104,10 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     try {
       final history = await repo.loadHistory().timeout(
-        const Duration(seconds: 20),
-        onTimeout: () =>
-            throw StateError('Timed out loading bill/customer history.'),
-      );
+            const Duration(seconds: 20),
+            onTimeout: () =>
+                throw StateError('Timed out loading bill/customer history.'),
+          );
       if (seq != _bootstrapSeq) return; // superseded by a newer bootstrap
       logs = history.logs;
       bills = history.bills;
@@ -129,8 +129,7 @@ class AppState extends ChangeNotifier {
   Product? productOf(String id) =>
       products.where((p) => p.id == id).firstOrNull;
   Stock stockOf(String id) => stock[id] ?? Stock(productId: id);
-  Staff get owner => staff.firstWhere(
-      (s) => s.isAdmin,
+  Staff get owner => staff.firstWhere((s) => s.isAdmin,
       orElse: () => staff.isNotEmpty
           ? staff.first
           : const Staff(id: 'unknown', name: 'Staff', role: 'staff'));
@@ -516,7 +515,7 @@ class AppState extends ChangeNotifier {
       customers.fold(0.0, (s, c) => s + c.outstanding);
 
   // ---- catalogue ----
-  Future<void> saveProduct(
+  Future<Product> saveProduct(
       {String? id,
       required String brandId,
       required String name,
@@ -526,7 +525,9 @@ class AppState extends ChangeNotifier {
       required double perKgPrice,
       double costPrice = 0,
       double minPriceFloor = 0,
-      int? lowThreshold}) async {
+      int? lowThreshold,
+      Object? photoUrl = _notProvided}) async {
+    late final Product saved;
     if (id != null) {
       final idx = products.indexWhere((p) => p.id == id);
       products[idx] = products[idx].copyWith(
@@ -539,8 +540,12 @@ class AppState extends ChangeNotifier {
         costPrice: costPrice,
         minPriceFloor: minPriceFloor,
         lowStockThresholdBags: lowThreshold,
+        photoUrl: identical(photoUrl, _notProvided)
+            ? products[idx].photoUrl
+            : photoUrl as String?,
       );
       await repo.upsertProduct(products[idx]);
+      saved = products[idx];
     } else {
       final np = Product(
         id: _uid('p'),
@@ -554,12 +559,16 @@ class AppState extends ChangeNotifier {
         minPriceFloor: minPriceFloor,
         lowStockThresholdBags: lowThreshold ?? settings.lowDefaultBags,
         qr: 'PEND-${DateTime.now().millisecondsSinceEpoch}',
+        photoUrl:
+            identical(photoUrl, _notProvided) ? null : photoUrl as String?,
       );
       products.add(np);
       stock[np.id] = Stock(productId: np.id);
       await repo.upsertProduct(np, initialStock: stock[np.id]);
+      saved = np;
     }
     notifyListeners();
+    return saved;
   }
 
   Future<void> deleteProduct(String id) async {
@@ -583,10 +592,28 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> saveStaff(Staff member) async {
+    final index = staff.indexWhere((s) => s.id == member.id);
+    if (index < 0) {
+      staff.add(member);
+    } else {
+      staff[index] = member;
+    }
+    try {
+      await repo.upsertStaff(member);
+      notifyListeners();
+    } catch (_) {
+      if (index < 0) staff.removeWhere((s) => s.id == member.id);
+      rethrow;
+    }
+  }
+
   // ---- settings ----
   Future<void> updateSettings(void Function(AppSettings) mutate) async {
-    mutate(settings);
-    await repo.saveSettings(settings);
+    final next = settings.copy();
+    mutate(next);
+    await repo.saveSettings(next);
+    settings = next;
     notifyListeners();
   }
 
@@ -608,3 +635,5 @@ class AppState extends ChangeNotifier {
   String _uid(String prefix) =>
       '$prefix${DateTime.now().microsecondsSinceEpoch}${_seq++}';
 }
+
+const Object _notProvided = Object();

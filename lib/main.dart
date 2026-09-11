@@ -95,7 +95,8 @@ class _AuthenticationGateState extends State<_AuthenticationGate> {
             // If Firebase Auth's own stream never emits (e.g. a hung
             // persistence/session lookup on web), this is where it sits
             // forever — surface *that* instead of an unlabeled splash.
-            return const _Splash(label: 'साइन-इन तपासत आहे... · Checking sign-in...');
+            return const _Splash(
+                label: 'साइन-इन तपासत आहे... · Checking sign-in...');
           }
           if (snapshot.hasError) {
             return _DataLoadFailure(error: snapshot.error!);
@@ -129,7 +130,8 @@ class _AuthenticationGateState extends State<_AuthenticationGate> {
           return Consumer<AppState>(
             builder: (context, app, _) {
               if (app.loading) {
-                return const _Splash(label: 'दुकानाचा डेटा आणत आहे... · Loading shop data...');
+                return const _Splash(
+                    label: 'दुकानाचा डेटा आणत आहे... · Loading shop data...');
               }
               if (app.bootstrapError != null) {
                 return _DataLoadFailure(error: app.bootstrapError!);

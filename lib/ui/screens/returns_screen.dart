@@ -30,69 +30,69 @@ class ReturnsScreen extends StatelessWidget {
           const HistoryLoadingNote()
         else
           CardList([
-          for (final b in recent)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(children: [
-                CircleAvatar(
-                    backgroundColor: c.surface2, child: const Text('🧾')),
-                const SizedBox(width: 12),
-                Expanded(
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                      Row(children: [
-                        Text('#${b.billNumber}',
-                            style: baloo(
-                                size: 14,
-                                weight: FontWeight.w700,
-                                color: c.ink)),
-                        if (b.status == BillStatus.voided) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 1),
-                              decoration: BoxDecoration(
-                                  color: c.critical.withValues(alpha: 0.14),
-                                  borderRadius: BorderRadius.circular(999)),
-                              child: Text('रद्द',
-                                  style: TextStyle(
-                                      color: c.critical,
-                                      fontSize: 10.5,
-                                      fontWeight: FontWeight.w700))),
-                        ],
-                      ]),
-                      Text(
-                          '${dateTimeShort(b.at)} · ${b.items.length} items · ${b.payments.map((p) => p.mode.name).join('+')}',
-                          style: TextStyle(fontSize: 11.5, color: c.ink2)),
-                    ])),
-                Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                  Text(money(b.total),
-                      style: baloo(
-                          size: 14, weight: FontWeight.w800, color: c.ink)),
-                  if (b.status != BillStatus.voided) ...[
-                    const SizedBox(height: 5),
-                    GestureDetector(
-                      onTap: () =>
-                          _confirmVoid(context, app, b.id, b.billNumber),
-                      child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 9, vertical: 4),
-                          decoration: BoxDecoration(
-                              color: c.critical.withValues(alpha: 0.14),
-                              borderRadius: BorderRadius.circular(8)),
-                          child: Text('रद्द Void',
-                              style: TextStyle(
-                                  color: c.critical,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700))),
-                    ),
-                  ],
+            for (final b in recent)
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(children: [
+                  CircleAvatar(
+                      backgroundColor: c.surface2, child: const Text('🧾')),
+                  const SizedBox(width: 12),
+                  Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                        Row(children: [
+                          Text('#${b.billNumber}',
+                              style: baloo(
+                                  size: 14,
+                                  weight: FontWeight.w700,
+                                  color: c.ink)),
+                          if (b.status == BillStatus.voided) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 1),
+                                decoration: BoxDecoration(
+                                    color: c.critical.withValues(alpha: 0.14),
+                                    borderRadius: BorderRadius.circular(999)),
+                                child: Text('रद्द',
+                                    style: TextStyle(
+                                        color: c.critical,
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.w700))),
+                          ],
+                        ]),
+                        Text(
+                            '${dateTimeShort(b.at)} · ${b.items.length} items · ${b.payments.map((p) => p.mode.name).join('+')}',
+                            style: TextStyle(fontSize: 11.5, color: c.ink2)),
+                      ])),
+                  Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    Text(money(b.total),
+                        style: baloo(
+                            size: 14, weight: FontWeight.w800, color: c.ink)),
+                    if (b.status != BillStatus.voided) ...[
+                      const SizedBox(height: 5),
+                      GestureDetector(
+                        onTap: () =>
+                            _confirmVoid(context, app, b.id, b.billNumber),
+                        child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 9, vertical: 4),
+                            decoration: BoxDecoration(
+                                color: c.critical.withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(8)),
+                            child: Text('रद्द Void',
+                                style: TextStyle(
+                                    color: c.critical,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700))),
+                      ),
+                    ],
+                  ]),
                 ]),
-              ]),
-            ),
-        ]),
+              ),
+          ]),
       ]),
     );
   }
