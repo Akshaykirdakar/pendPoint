@@ -1,0 +1,25 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "senior-citizen-app-2454f",
+          "appId": "1:285777486519:android:9b13e2037ec17fd3452332",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "senior-citizen-app-2454f",
+          "configurations": {
+            "android": "1:285777486519:android:9b13e2037ec17fd3452332",
+            "web": "1:285777486519:web:1777e777ff452c11452332"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}

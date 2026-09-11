@@ -1,0 +1,25 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Local Android SDK paths and signing credentials.
+android/local.properties
+android/key.properties
+*.jks
+*.keystore
+
+# Firebase application configuration. These contain public client identifiers,
+# not server credentials, and are required for CI/release builds.
+!lib/firebase_options.dart
+!android/app/google-services.json
+
+# Keep platform projects in source control: they contain the Android build and
+# Firebase configuration used by GitHub Actions.

@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "285777486519",
+    "project_id": "senior-citizen-app-2454f",
+    "storage_bucket": "senior-citizen-app-2454f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:285777486519:android:9b13e2037ec17fd3452332",
+        "android_client_info": {
+          "package_name": "com.example.pend_point"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyClYF56rFrnWgeSqXbSS6RCPQ8BZ8pI8PE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:285777486519:android:f2490d99dc5c0c55452332",
+        "android_client_info": {
+          "package_name": "com.example.senior_citizen_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyClYF56rFrnWgeSqXbSS6RCPQ8BZ8pI8PE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

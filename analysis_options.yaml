@@ -1,0 +1,14 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  errors:
+    # The commented-out FirestoreRepository body references packages that are
+    # off by default; it is not compiled until you enable Firebase.
+    unused_import: ignore
+  exclude:
+    - build/**
+
+linter:
+  rules:
+    prefer_const_constructors: false
+    avoid_print: false

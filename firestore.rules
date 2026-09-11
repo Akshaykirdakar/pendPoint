@@ -1,0 +1,43 @@
+rules_version = '2';
+
+// पेंड Point — Firestore security rules.
+// Model: the shop owner (admin) and counter staff are authenticated with
+// Firebase Auth; their role is stored on a custom claim (`role`) or in
+// staff/{uid}. Catalogue & price edits are admin-only; staff may bill and
+// read. Tighten `isStaff()` to your real auth once wired.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() { return isSignedIn() && request.auth.token.role == 'admin'; }
+    function isStaff() { return isSignedIn(); } // any signed-in staff member
+
+    // Catalogue: everyone signed in reads; only admin writes prices/products.
+    match /brands/{id}   { allow read: if isStaff(); allow write: if isAdmin(); }
+    match /products/{id} { allow read: if isStaff(); allow write: if isAdmin(); }
+
+    // Stock: staff read; staff may write via app (sale deduction, stock-in).
+    match /stock/{id}     { allow read, write: if isStaff(); }
+    match /stockLogs/{id} { allow read, create: if isStaff(); allow update, delete: if isAdmin(); }
+
+    // Bills: staff create & read; voids (status change) admin-only.
+    match /bills/{billId} {
+      allow read, create: if isStaff();
+      allow update: if isAdmin(); // voiding
+      allow delete: if false;     // never hard-delete a bill
+      match /billItems/{itemId} { allow read, create: if isStaff(); allow update, delete: if false; }
+    }
+
+    // Customers / khata: staff manage.
+    match /customers/{cid} {
+      allow read, write: if isStaff();
+      match /ledgerEntries/{eid} { allow read, create: if isStaff(); allow update, delete: if isAdmin(); }
+    }
+
+    // Staff records & meta: admin only.
+    match /staff/{id} { allow read: if isStaff(); allow write: if isAdmin(); }
+    match /meta/{doc} { allow read: if isStaff(); allow write: if isStaff(); } // counters need staff writes
+
+    match /{document=**} { allow read, write: if false; }
+  }
+}
