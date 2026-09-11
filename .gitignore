@@ -15,6 +15,7 @@ android/local.properties
 android/key.properties
 *.jks
 *.keystore
+*-service-account.json
 
 # Firebase application configuration. These contain public client identifiers,
 # not server credentials, and are required for CI/release builds.

@@ -15,7 +15,11 @@ class StockInScreen extends StatefulWidget {
 }
 
 class _StockInScreenState extends State<StockInScreen> {
-  late String _pid;
+  // Null until a product exists to default to — see build(), which also
+  // re-derives this if the products list changes underneath us (e.g. the
+  // selected product gets deleted from the catalogue elsewhere) so it never
+  // points at a stale/missing id.
+  String? _pid;
   final _bags = TextEditingController(text: '10');
   final _cost = TextEditingController();
   final _batch = TextEditingController();
@@ -26,12 +30,30 @@ class _StockInScreenState extends State<StockInScreen> {
   void initState() {
     super.initState();
     final app = context.read<AppState>();
-    _pid = widget.productId ?? app.products.first.id;
+    _pid = widget.productId ?? (app.products.isEmpty ? null : app.products.first.id);
   }
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
+
+    if (app.products.isEmpty) {
+      return PendScaffold(
+        titleMr: 'साठा भरा',
+        titleEn: 'Stock in',
+        body: const EmptyState(
+          '📦',
+          'No products in the catalogue yet · कॅटलॉगमध्ये उत्पादन नाही. Add a product first.',
+        ),
+      );
+    }
+    // The previously-selected product may no longer exist (deleted
+    // elsewhere while this screen was open) — fall back to the first one
+    // rather than keep a dangling id that stockIn() would silently no-op on.
+    if (_pid == null || !app.products.any((p) => p.id == _pid)) {
+      _pid = app.products.first.id;
+    }
+
     return PendScaffold(
       titleMr: 'साठा भरा',
       titleEn: 'Stock in',
@@ -73,7 +95,7 @@ class _StockInScreenState extends State<StockInScreen> {
             showToast(context, 'गोणी संख्या टाका · Enter bags');
             return;
           }
-          await app.stockIn(_pid, bags,
+          await app.stockIn(_pid!, bags,
               cost: double.tryParse(_cost.text),
               batch: _batch.text.isEmpty ? null : _batch.text,
               expiry: _expiry,

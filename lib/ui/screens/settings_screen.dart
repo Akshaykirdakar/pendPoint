@@ -1,7 +1,9 @@
+import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/app_settings.dart';
+import '../../services/thermal_printer_service.dart';
 import '../../state/app_state.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
@@ -67,6 +69,50 @@ class SettingsScreen extends StatelessWidget {
             () => app.updateSettings((s) => s.theme = AppThemeMode.dark)
           ),
         ]),
+        SectionHeader('प्रिंटर · Bluetooth printer'),
+        Container(
+          decoration: cardDecoration(context),
+          padding: const EdgeInsets.all(14),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Icon(
+                  app.settings.printerAddress == null
+                      ? Icons.print_disabled_outlined
+                      : Icons.print_outlined,
+                  color: app.settings.printerAddress == null
+                      ? c.muted
+                      : c.good),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  app.settings.printerAddress == null
+                      ? 'जोडलेला प्रिंटर नाही · No printer paired'
+                      : '${app.settings.printerName ?? 'Printer'} जोडले · Paired',
+                  style: TextStyle(fontWeight: FontWeight.w600, color: c.ink),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 10),
+            BigButton.ghost('🔍 जोडलेली उपकरणे · Choose paired device',
+                onTap: () => _showPrinterPicker(context, app)),
+            if (app.settings.printerAddress != null) ...[
+              const SizedBox(height: 8),
+              BigButton.ghost('✕ प्रिंटर काढा · Forget printer', onTap: () {
+                app.updateSettings((s) {
+                  s.printerName = null;
+                  s.printerAddress = null;
+                });
+                ThermalPrinterService.instance.disconnect();
+                showToast(context, 'प्रिंटर काढले · Printer removed');
+              }),
+            ],
+            const SizedBox(height: 8),
+            Text(
+                'बिल प्रतिमा म्हणून छापले जाते जेणेकरून मराठी बरोबर येईल. फक्त ब्लूटूथ (SPP) थर्मल प्रिंटर समर्थित.\nBills print as an image for correct Devanagari. Bluetooth (SPP) thermal printers only.',
+                style: TextStyle(fontSize: 11.5, color: c.muted)),
+          ]),
+        ),
         SectionHeader('बॅकअप · Backup'),
         Container(
           decoration: cardDecoration(context),
@@ -131,6 +177,86 @@ class SettingsScreen extends StatelessWidget {
         ),
       ]),
     );
+  }
+
+  Future<void> _showPrinterPicker(BuildContext context, AppState app) async {
+    final service = ThermalPrinterService.instance;
+    final permitted = await service.ensurePermission();
+    if (!permitted) {
+      if (context.mounted) {
+        showToast(
+            context, 'ब्लूटूथ परवानगी आवश्यक · Bluetooth permission needed');
+      }
+      return;
+    }
+    final devices = await service.bondedDevices();
+    if (!context.mounted) return;
+    if (devices.isEmpty) {
+      showToast(context,
+          'जोडलेले उपकरण नाही — फोनच्या ब्लूटूथ सेटिंग्जमध्ये प्रथम पेअर करा · No paired device — pair it in phone Bluetooth settings first');
+      return;
+    }
+    final c = context.c;
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                  child: Container(
+                      width: 38,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                          color: c.line, borderRadius: BorderRadius.circular(9)))),
+              Text('प्रिंटर निवडा · Choose printer',
+                  style: baloo(size: 18, weight: FontWeight.w700, color: c.ink)),
+              const SizedBox(height: 12),
+              for (final d in devices)
+                InkWell(
+                  onTap: () => _connectPrinter(context, ctx, app, d),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Row(children: [
+                      Icon(Icons.print_outlined, color: c.ink2),
+                      const SizedBox(width: 12),
+                      Expanded(
+                          child: Text(d.name ?? 'Unknown device',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w700, color: c.ink))),
+                      Text(d.address ?? '',
+                          style: TextStyle(fontSize: 11.5, color: c.muted)),
+                    ]),
+                  ),
+                ),
+            ]),
+      ),
+    );
+  }
+
+  Future<void> _connectPrinter(BuildContext screenContext, BuildContext sheetContext,
+      AppState app, BluetoothDevice device) async {
+    final ok = await ThermalPrinterService.instance.connect(device);
+    if (sheetContext.mounted) Navigator.pop(sheetContext);
+    if (!ok) {
+      if (screenContext.mounted) {
+        showToast(screenContext, 'प्रिंटरशी जोडता आले नाही · Could not connect');
+      }
+      return;
+    }
+    await app.updateSettings((s) {
+      s.printerName = device.name;
+      s.printerAddress = device.address;
+    });
+    if (screenContext.mounted) {
+      showToast(screenContext, 'प्रिंटर जोडले · Printer paired');
+    }
   }
 
   Widget _seg(BuildContext context, List<(String, bool, VoidCallback)> items) {

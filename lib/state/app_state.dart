@@ -51,6 +51,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> bootstrap() async {
     bootstrapError = null;
+    loading = true;
+    notifyListeners();
     try {
       final s = await repo.loadAll();
       brands = s.brands;

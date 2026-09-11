@@ -11,6 +11,8 @@ class AppSettings {
   bool floorOn; // enforce per-product price floor
   bool gateOverride; // require Owner PIN for large discounts
   double gateOverridePct; // discount % above which PIN is required
+  String? printerName; // paired Bluetooth thermal printer (display name)
+  String? printerAddress; // ...and its MAC address, used to reconnect
 
   AppSettings({
     this.shop = 'जय किसान पेंड भांडार',
@@ -20,6 +22,8 @@ class AppSettings {
     this.floorOn = true,
     this.gateOverride = true,
     this.gateOverridePct = 5,
+    this.printerName,
+    this.printerAddress,
   });
 
   Map<String, dynamic> toMap() => {
@@ -30,6 +34,8 @@ class AppSettings {
         'floorOn': floorOn,
         'gateOverride': gateOverride,
         'gateOverridePct': gateOverridePct,
+        'printerName': printerName,
+        'printerAddress': printerAddress,
       };
 
   factory AppSettings.fromMap(Map<String, dynamic> m) => AppSettings(
@@ -42,5 +48,7 @@ class AppSettings {
         floorOn: (m['floorOn'] ?? true) as bool,
         gateOverride: (m['gateOverride'] ?? true) as bool,
         gateOverridePct: (m['gateOverridePct'] ?? 5).toDouble(),
+        printerName: m['printerName'] as String?,
+        printerAddress: m['printerAddress'] as String?,
       );
 }

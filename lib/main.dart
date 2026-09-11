@@ -31,16 +31,26 @@ class PendApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (requireAuthentication) {
-      return MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: buildTheme(Brightness.light),
-        darkTheme: buildTheme(Brightness.dark),
-        home: _AuthenticationGate(repo: repo),
-      );
-    }
+    // AppState (and its Provider) is created unconditionally, right here at
+    // the top, regardless of auth state. It must NEVER be created only
+    // inside an authenticated branch further down the tree — on web,
+    // Flutter can eagerly build a leftover/restored route's initState
+    // (e.g. after a fresh sign-in) in the same frame the tree is still
+    // assembling, and any screen that reads Provider<AppState> before a
+    // conditionally-created Provider has mounted throws
+    // ProviderNotFoundException. Keeping one Provider alive for the whole
+    // app lifetime removes that whole class of race.
     return ChangeNotifierProvider(
-      create: (_) => AppState(repo)..bootstrap(),
+      // Auth-required path: bootstrap is deferred to _AuthenticationGate,
+      // which (re)triggers it once Firebase Auth actually has a user (it
+      // needs an authenticated request to satisfy firestore.rules).
+      // Non-auth path (demo mode / tests, InMemoryRepository): there is no
+      // gate to trigger it, so bootstrap immediately as the old code did.
+      create: (_) {
+        final app = AppState(repo);
+        if (!requireAuthentication) app.bootstrap();
+        return app;
+      },
       child: Consumer<AppState>(
         builder: (context, app, _) {
           final mode = switch (app.settings.theme) {
@@ -54,7 +64,9 @@ class PendApp extends StatelessWidget {
             theme: buildTheme(Brightness.light),
             darkTheme: buildTheme(Brightness.dark),
             themeMode: mode,
-            home: app.loading ? const _Splash() : const RootShell(),
+            home: requireAuthentication
+                ? const _AuthenticationGate()
+                : (app.loading ? const _Splash() : const RootShell()),
           );
         },
       ),
@@ -62,9 +74,18 @@ class PendApp extends StatelessWidget {
   }
 }
 
-class _AuthenticationGate extends StatelessWidget {
-  final Repository repo;
-  const _AuthenticationGate({required this.repo});
+/// Shows sign-in until Firebase Auth has a user, then (re)bootstraps
+/// [AppState] from Firestore for that user and shows the shop once loaded.
+/// Does NOT create its own Provider — see the comment in [PendApp].
+class _AuthenticationGate extends StatefulWidget {
+  const _AuthenticationGate();
+
+  @override
+  State<_AuthenticationGate> createState() => _AuthenticationGateState();
+}
+
+class _AuthenticationGateState extends State<_AuthenticationGate> {
+  String? _bootstrappedUid;
 
   @override
   Widget build(BuildContext context) => StreamBuilder<User?>(
@@ -73,18 +94,27 @@ class _AuthenticationGate extends StatelessWidget {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const _Splash();
           }
-          if (!snapshot.hasData) return const SignInScreen();
-          return ChangeNotifierProvider(
-            create: (_) => AppState(repo)..bootstrap(),
-            child: Consumer<AppState>(
-              builder: (context, app, _) {
-                if (app.loading) return const _Splash();
-                if (app.bootstrapError != null) {
-                  return _DataLoadFailure(error: app.bootstrapError!);
-                }
-                return const RootShell();
-              },
-            ),
+          final user = snapshot.data;
+          if (user == null) {
+            _bootstrappedUid = null;
+            return const SignInScreen();
+          }
+          // Kick off (or re-kick off, for a different user) exactly once.
+          if (_bootstrappedUid != user.uid) {
+            _bootstrappedUid = user.uid;
+            WidgetsBinding.instance.addPostFrameCallback(
+              (_) => context.read<AppState>().bootstrap(),
+            );
+            return const _Splash();
+          }
+          return Consumer<AppState>(
+            builder: (context, app, _) {
+              if (app.loading) return const _Splash();
+              if (app.bootstrapError != null) {
+                return _DataLoadFailure(error: app.bootstrapError!);
+              }
+              return const RootShell();
+            },
           );
         },
       );

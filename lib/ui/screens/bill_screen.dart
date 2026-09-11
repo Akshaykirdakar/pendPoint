@@ -1,22 +1,35 @@
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/enums.dart';
+import '../../services/thermal_printer_service.dart';
 import '../../state/app_state.dart';
 import '../../utils/formatters.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 
-class BillScreen extends StatelessWidget {
+class BillScreen extends StatefulWidget {
   final String billId;
   const BillScreen({required this.billId, super.key});
+
+  @override
+  State<BillScreen> createState() => _BillScreenState();
+}
+
+class _BillScreenState extends State<BillScreen> {
+  final GlobalKey _receiptKey = GlobalKey();
+  bool _printing = false;
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final c = context.c;
-    final bill = app.bills.firstWhere((b) => b.id == billId);
+    final bill = app.bills.firstWhere((b) => b.id == widget.billId);
     final voided = bill.status == BillStatus.voided;
 
     TextStyle mono = const TextStyle(fontFamily: 'monospace', fontSize: 12.5);
@@ -67,7 +80,9 @@ class BillScreen extends StatelessWidget {
           ]),
         ),
         const SizedBox(height: 16),
-        Container(
+        RepaintBoundary(
+          key: _receiptKey,
+          child: Container(
           decoration: BoxDecoration(
               color: c.surface2,
               borderRadius: BorderRadius.circular(12),
@@ -104,6 +119,7 @@ class BillScreen extends StatelessWidget {
                 child: Text('धन्यवाद! · Thank you 🙏',
                     style: mono.copyWith(color: c.muted))),
           ]),
+          ),
         ),
         const SizedBox(height: 12),
         Container(
@@ -126,9 +142,9 @@ class BillScreen extends StatelessWidget {
         const SizedBox(height: 12),
         Row(children: [
           Expanded(
-              child: BigButton.brand('🖨️ छापा · Print',
-                  onTap: () => showToast(context,
-                      'बिल प्रिंटरला पाठवले (प्रतिमा) · Sent to printer'))),
+              child: BigButton.brand(
+                  _printing ? 'छापत आहे... · Printing…' : '🖨️ छापा · Print',
+                  onTap: _printing ? null : () => _print(context, app))),
           const SizedBox(width: 11),
           Expanded(
               child: BigButton.ghost('📲 WhatsApp',
@@ -145,6 +161,54 @@ class BillScreen extends StatelessWidget {
             onTap: () => Navigator.of(context).popUntil((r) => r.isFirst)),
       ]),
     );
+  }
+
+  Future<void> _print(BuildContext context, AppState app) async {
+    final address = app.settings.printerAddress;
+    if (address == null) {
+      showToast(context, 'सेटिंग्जमध्ये प्रिंटर जोडा · Pair a printer in Settings first');
+      return;
+    }
+    setState(() => _printing = true);
+    try {
+      final bytes = await _captureReceipt();
+      if (bytes == null) {
+        if (context.mounted) {
+          showToast(context, 'बिलाची प्रतिमा तयार करता आली नाही · Could not render receipt');
+        }
+        return;
+      }
+      final connected = await ThermalPrinterService.instance
+          .ensureConnected(address, app.settings.printerName);
+      if (!connected) {
+        if (context.mounted) {
+          showToast(context, 'प्रिंटरशी जोडता आले नाही · Could not connect to printer');
+        }
+        return;
+      }
+      final sent = await ThermalPrinterService.instance.printImage(bytes);
+      if (context.mounted) {
+        showToast(
+            context,
+            sent
+                ? 'बिल प्रिंटरला पाठवले · Sent to printer'
+                : 'छपाई अयशस्वी · Print failed');
+      }
+    } finally {
+      if (mounted) setState(() => _printing = false);
+    }
+  }
+
+  /// Renders the receipt card (wrapped in [_receiptKey]'s RepaintBoundary) to
+  /// a PNG bitmap — sent to the thermal printer as an image so Devanagari
+  /// prints correctly (ESC/POS text commands can't render it).
+  Future<Uint8List?> _captureReceipt() async {
+    final boundary = _receiptKey.currentContext?.findRenderObject()
+        as RenderRepaintBoundary?;
+    if (boundary == null) return null;
+    final image = await boundary.toImage(pixelRatio: 3);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    return byteData?.buffer.asUint8List();
   }
 
   void _confirmVoid(BuildContext context, AppState app, String id, int number) {
