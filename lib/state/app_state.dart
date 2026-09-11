@@ -42,6 +42,7 @@ class AppState extends ChangeNotifier {
   List<Staff> staff = [];
   AppSettings settings = AppSettings();
   bool loading = true;
+  Object? bootstrapError;
 
   // ---- current cart ----
   final List<CartLine> cart = [];
@@ -49,6 +50,7 @@ class AppState extends ChangeNotifier {
   final List<Payment> payments = [];
 
   Future<void> bootstrap() async {
+    bootstrapError = null;
     try {
       final s = await repo.loadAll();
       brands = s.brands;
@@ -59,6 +61,8 @@ class AppState extends ChangeNotifier {
       customers = s.customers;
       staff = s.staff;
       settings = s.settings;
+    } catch (error) {
+      bootstrapError = error;
     } finally {
       loading = false;
       notifyListeners();

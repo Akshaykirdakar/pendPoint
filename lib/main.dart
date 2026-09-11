@@ -77,12 +77,55 @@ class _AuthenticationGate extends StatelessWidget {
           return ChangeNotifierProvider(
             create: (_) => AppState(repo)..bootstrap(),
             child: Consumer<AppState>(
-              builder: (context, app, _) => app.loading
-                  ? const _Splash()
-                  : const RootShell(),
+              builder: (context, app, _) {
+                if (app.loading) return const _Splash();
+                if (app.bootstrapError != null) {
+                  return _DataLoadFailure(error: app.bootstrapError!);
+                }
+                return const RootShell();
+              },
             ),
           );
         },
+      );
+}
+
+class _DataLoadFailure extends StatelessWidget {
+  final Object error;
+  const _DataLoadFailure({required this.error});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.cloud_off_rounded, size: 52),
+                const SizedBox(height: 16),
+                Text('Could not load shop data',
+                    style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 8),
+                const Text(
+                  'Check the Firebase staff account and Firestore rules, then sign in again.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                Text(error.toString(),
+                    textAlign: TextAlign.center,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 16),
+                OutlinedButton(
+                  onPressed: () => FirebaseAuth.instance.signOut(),
+                  child: const Text('Sign out'),
+                ),
+              ],
+            ),
+          ),
+        ),
       );
 }
 
