@@ -1,7 +1,9 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:pend_point/data/memory_repository.dart';
 import 'package:pend_point/main.dart';
+import 'package:pend_point/ui/screens/more_screen.dart';
 
 void main() {
   testWidgets('app starts', (WidgetTester tester) async {
@@ -25,6 +27,16 @@ void main() {
 
     await tester.tap(find.text('अधिक'));
     await tester.pumpAndSettle();
-    expect(find.text('More'), findsOneWidget);
+
+    // RootShell keeps every tab mounted in an IndexedStack; verify that the
+    // More tab was selected, then assert its primary Marathi page heading.
+    expect(tester.widget<IndexedStack>(find.byType(IndexedStack)).index, 4);
+    expect(
+      find.descendant(
+        of: find.byType(MoreScreen),
+        matching: find.text('अधिक'),
+      ),
+      findsOneWidget,
+    );
   });
 }

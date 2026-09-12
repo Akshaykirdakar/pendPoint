@@ -77,5 +77,5 @@ class InMemoryRepository implements Repository {
   Future<void> saveSettings(AppSettings settings) async {}
 
   @override
-  String? get currentUserId => throw UnimplementedError();
+  String? get currentUserId => null;
 }
