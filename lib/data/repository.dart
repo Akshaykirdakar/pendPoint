@@ -77,6 +77,10 @@ class HistorySnapshot {
 /// Persistence boundary. Swap [InMemoryRepository] for [FirestoreRepository]
 /// in main.dart once Firebase is configured — nothing else changes.
 abstract class Repository {
+  /// The signed-in staff member for an authenticated repository. Local/demo
+  /// repositories deliberately have no user, keeping their UI Firebase-free.
+  String? get currentUserId => null;
+
   /// Catalogue + stock + settings + staff — everything needed to open the
   /// counter screen. Load this first and show the UI as soon as it resolves.
   Future<CoreSnapshot> loadCore();

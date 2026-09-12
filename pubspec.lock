@@ -153,14 +153,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.1.2"
-  file:
-    dependency: transitive
-    description:
-      name: file
-      sha256: a3b4f84adafef897088c160faf7dfffb7696046cb13ae90b508c2cbc95d3b8d4
-      url: "https://pub.dev"
-    source: hosted
-    version: "7.0.1"
   file_selector_linux:
     dependency: transitive
     description:
@@ -296,14 +288,6 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
-  glob:
-    dependency: transitive
-    description:
-      name: glob
-      sha256: "218aeb56050c714f62a3182775320dfa04602b55074873e24e31bbd39bda96fb"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.2.0"
   google_fonts:
     dependency: "direct main"
     description:
@@ -465,13 +449,13 @@ packages:
     source: hosted
     version: "3.0.2"
   libserialport_plus:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: libserialport_plus
-      sha256: "90609c55b05668fd33d4aeea22cc795037adc67891b032fba7ff42f93a29e678"
+      sha256: c3193d7d71c0ee32a5e1a292ec4cfdff10ee78db0fa2959cd65dc15320ec0b7c
       url: "https://pub.dev"
     source: hosted
-    version: "1.0.4"
+    version: "0.1.1"
   lints:
     dependency: transitive
     description:
@@ -528,14 +512,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "7.4.1"
-  native_toolchain_c:
-    dependency: transitive
-    description:
-      name: native_toolchain_c
-      sha256: "9d233b6f2d9c52e1a2b5fbe70451d2c10ac674d3bb419d0ec8de14989d437c26"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.19.4"
   nested:
     dependency: transitive
     description:
@@ -720,14 +696,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.5.2"
-  process:
-    dependency: transitive
-    description:
-      name: process
-      sha256: "4242ba3508d37e01808bdf71ad1d5bb93a8d671bf2e7450e6b1b353fb0808891"
-      url: "https://pub.dev"
-    source: hosted
-    version: "5.0.6"
   provider:
     dependency: "direct main"
     description:

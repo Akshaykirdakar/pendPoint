@@ -75,4 +75,7 @@ class InMemoryRepository implements Repository {
       String customerId, LedgerEntry entry, double newOutstanding) async {}
   @override
   Future<void> saveSettings(AppSettings settings) async {}
+
+  @override
+  String? get currentUserId => throw UnimplementedError();
 }

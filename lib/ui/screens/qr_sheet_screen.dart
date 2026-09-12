@@ -9,8 +9,6 @@ import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 
 /// Printable QR grid — paste one code under each product on the shelf.
-/// TODO (print): render this grid to a PDF (printing package) or image for
-///  export.
 class QrSheetScreen extends StatelessWidget {
   const QrSheetScreen({super.key});
 

@@ -22,6 +22,10 @@ dependencies:
   image_picker: ^1.1.2
   permission_handler: ^11.3.1    # runtime Bluetooth permission (Android 12+)
   unified_esc_pos_printer: ^3.4.0
+  # Keep the printer package's desktop-only serial-port dependency on the
+  # precompiled FFI release. Newer 1.x releases build a native Windows asset
+  # during every widget test, even though this application targets Android.
+  libserialport_plus: 0.1.1
   image: ^4.9.2
 
   # --- Firebase (backend). Uncomment after `flutterfire configure`. ---

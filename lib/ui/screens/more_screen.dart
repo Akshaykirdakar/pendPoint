@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 
 import '../../utils/theme.dart';
@@ -21,7 +20,7 @@ class MoreScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final isAdmin = app.staff.any((s) =>
-        s.id == FirebaseAuth.instance.currentUser?.uid &&
+        s.id == app.repo.currentUserId &&
         s.isAdmin &&
         s.active);
     final rows = <(IconData, String, String, Widget)>[

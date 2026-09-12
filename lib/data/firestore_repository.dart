@@ -26,6 +26,7 @@
 // ---------------------------------------------------------------------------
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/app_settings.dart';
@@ -43,6 +44,9 @@ class FirestoreRepository implements Repository {
   final FirebaseFirestore db;
   FirestoreRepository({FirebaseFirestore? firestore})
       : db = firestore ?? FirebaseFirestore.instance;
+
+  @override
+  String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
 
   /// Catalogue + stock + settings + staff — enough to open the counter
   /// screen. See [Repository.loadCore].
