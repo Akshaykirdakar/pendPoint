@@ -11,12 +11,18 @@ class StockLog {
   final int bagsDelta;
   final double looseKgDelta;
   final String? billId;
-  final String? batchNo;
+  final String? batchNo; // legacy free-text; new rows also carry [batchId]
   final DateTime? expiry;
   final double? cost; // per-bag purchase cost
-  final String? supplier;
+  final String? supplier; // legacy free-text; new rows also carry [supplierId]
   final String? note;
   final DateTime at;
+
+  // New FK fields (see the reviewed branch/batch/expiry architecture) —
+  // nullable so old rows (written before these existed) still deserialize.
+  final String? branchId;
+  final String? batchId;
+  final String? supplierId;
 
   const StockLog({
     required this.id,
@@ -31,6 +37,9 @@ class StockLog {
     this.supplier,
     this.note,
     required this.at,
+    this.branchId,
+    this.batchId,
+    this.supplierId,
   });
 
   Map<String, dynamic> toMap() => {
@@ -45,6 +54,9 @@ class StockLog {
         'supplier': supplier,
         'note': note,
         'createdAt': at.toIso8601String(),
+        'branchId': branchId,
+        'batchId': batchId,
+        'supplierId': supplierId,
       };
 
   factory StockLog.fromMap(String id, Map<String, dynamic> m) => StockLog(
@@ -60,5 +72,8 @@ class StockLog {
         supplier: m['supplier'] as String?,
         note: m['note'] as String?,
         at: DateTime.tryParse(m['createdAt'] ?? '') ?? DateTime.now(),
+        branchId: m['branchId'] as String?,
+        batchId: m['batchId'] as String?,
+        supplierId: m['supplierId'] as String?,
       );
 }

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 final _money =
     NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
 final _dayFmt = DateFormat('dd MMM');
+final _dayFullFmt = DateFormat('dd MMM yyyy');
 final _timeFmt = DateFormat('hh:mm a');
 
 /// ₹1,450 (Indian grouping).
@@ -21,4 +22,5 @@ String qtyLabel(bool isBag, double qty) => isBag ? '${qty.round()}' : kg(qty);
 String dateTimeShort(DateTime d) =>
     '${_dayFmt.format(d)} ${_timeFmt.format(d)}';
 String dayShort(DateTime d) => _dayFmt.format(d);
+String dayFull(DateTime d) => _dayFullFmt.format(d);
 String weekdayShort(DateTime d) => DateFormat('EEE').format(d).substring(0, 2);

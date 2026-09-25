@@ -19,6 +19,20 @@ class Product {
   final double minPriceFloor; // optional — override guard
   final int lowStockThresholdBags; // evaluated against total kg
   final String qr; // encoded product code, e.g. "PEND-P1"
+  final String? category; // optional product type/category — for Reports
+
+  /// Branches this product may be stocked/sold at (Stock In's Product
+  /// dropdown, and POS, are both gated on this — see the reviewed branch
+  /// architecture). Empty means "not yet assigned to any branch".
+  final List<String> branchIds;
+
+  /// Whether Stock In must record a batch number for this product (vs. a
+  /// single untracked pool). Defaults to true — most feed products are sold
+  /// in dated, supplier-attributed lots.
+  final bool batchTrackingEnabled;
+
+  /// Whether Stock In must record an expiry date for this product's batches.
+  final bool expiryTrackingEnabled;
 
   const Product({
     required this.id,
@@ -34,6 +48,10 @@ class Product {
     this.minPriceFloor = 0,
     this.lowStockThresholdBags = 5,
     required this.qr,
+    this.category,
+    this.branchIds = const [],
+    this.batchTrackingEnabled = true,
+    this.expiryTrackingEnabled = true,
   });
 
   /// Per-kg floor derived from the bag floor for by-weight overrides.
@@ -55,6 +73,10 @@ class Product {
     double? costPrice,
     double? minPriceFloor,
     int? lowStockThresholdBags,
+    Object? category = _unchanged,
+    List<String>? branchIds,
+    bool? batchTrackingEnabled,
+    bool? expiryTrackingEnabled,
   }) =>
       Product(
         id: id,
@@ -73,6 +95,13 @@ class Product {
         lowStockThresholdBags:
             lowStockThresholdBags ?? this.lowStockThresholdBags,
         qr: qr,
+        category: identical(category, _unchanged)
+            ? this.category
+            : category as String?,
+        branchIds: branchIds ?? this.branchIds,
+        batchTrackingEnabled: batchTrackingEnabled ?? this.batchTrackingEnabled,
+        expiryTrackingEnabled:
+            expiryTrackingEnabled ?? this.expiryTrackingEnabled,
       );
 
   Map<String, dynamic> toMap() => {
@@ -88,6 +117,10 @@ class Product {
         'minPriceFloor': minPriceFloor,
         'lowStockThreshold': lowStockThresholdBags,
         'qrCode': qr,
+        'category': category,
+        'branchIds': branchIds,
+        'batchTrackingEnabled': batchTrackingEnabled,
+        'expiryTrackingEnabled': expiryTrackingEnabled,
       };
 
   factory Product.fromMap(String id, Map<String, dynamic> m) => Product(
@@ -104,6 +137,18 @@ class Product {
         minPriceFloor: (m['minPriceFloor'] ?? 0).toDouble(),
         lowStockThresholdBags: (m['lowStockThreshold'] ?? 5) as int,
         qr: (m['qrCode'] ?? 'PEND-$id') as String,
+        // Absent on every product saved before this field existed — treated
+        // as "uncategorized", never as a reason to fail loading the product.
+        category: (m['category'] as String?)?.trim().isEmpty ?? true
+            ? null
+            : (m['category'] as String).trim(),
+        // Absent on every product saved before branches existed — treated as
+        // "not yet assigned to any branch" (migration backfills this).
+        branchIds: ((m['branchIds'] as List?) ?? const [])
+            .map((e) => e.toString())
+            .toList(),
+        batchTrackingEnabled: (m['batchTrackingEnabled'] ?? true) as bool,
+        expiryTrackingEnabled: (m['expiryTrackingEnabled'] ?? true) as bool,
       );
 }
 

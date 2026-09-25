@@ -26,7 +26,8 @@ class _ProductEditScreenState extends State<ProductEditScreen> {
       bag = TextEditingController(),
       kg = TextEditingController(),
       cost = TextEditingController(),
-      floor = TextEditingController();
+      floor = TextEditingController(),
+      category = TextEditingController();
   Timer? debounce;
   Uint8List? image;
   String? imageName, oldUrl;
@@ -47,6 +48,7 @@ class _ProductEditScreenState extends State<ProductEditScreen> {
       kg.text = p.perKgPrice.toString();
       cost.text = p.costPrice.toString();
       floor.text = p.minPriceFloor.toString();
+      category.text = p.category ?? '';
       oldUrl = p.photoUrl;
     }
     en.addListener(_autoMr);
@@ -70,7 +72,7 @@ class _ProductEditScreenState extends State<ProductEditScreen> {
   @override
   void dispose() {
     debounce?.cancel();
-    for (final c in [en, mr, wt, threshold, bag, kg, cost, floor]) {
+    for (final c in [en, mr, wt, threshold, bag, kg, cost, floor, category]) {
       c.dispose();
     }
     super.dispose();
@@ -117,6 +119,7 @@ class _ProductEditScreenState extends State<ProductEditScreen> {
             const SizedBox(width: 10),
             Expanded(child: _f('Floor', floor, num: true, prefix: '₹'))
           ]),
+          _f('उत्पादन प्रकार · Product Type (optional)', category),
           BigButton.brand(busy ? 'Saving...' : 'जतन करा · Save',
               onTap: busy ? null : () => _save(a)),
           if (edit) ...[
@@ -203,7 +206,8 @@ class _ProductEditScreenState extends State<ProductEditScreen> {
           perKgPrice: double.tryParse(kg.text) ?? 0,
           costPrice: double.tryParse(cost.text) ?? 0,
           minPriceFloor: double.tryParse(floor.text) ?? 0,
-          lowThreshold: int.tryParse(threshold.text));
+          lowThreshold: int.tryParse(threshold.text),
+          category: category.text.trim().isEmpty ? null : category.text.trim());
       if (image != null) {
         final url = await ProductPhotoService().upload(
             productId: p.id,

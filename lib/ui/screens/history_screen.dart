@@ -24,6 +24,10 @@ class HistoryScreen extends StatelessWidget {
           StockLogType.adjustment => 'समायोजन Adjust',
           StockLogType.saleVoid => 'रद्द Void',
           StockLogType.returned => 'परतावा Return',
+          StockLogType.transferIn => 'हस्तांतरण आले Transfer in',
+          StockLogType.transferOut => 'हस्तांतरण गेले Transfer out',
+          StockLogType.purchaseReturn => 'खरेदी परतावा Purchase return',
+          StockLogType.expiryWriteOff => 'मुदत संपली Write-off',
         };
     Color color(StockLogType t) => switch (t) {
           StockLogType.purchase => c.good,
@@ -32,6 +36,10 @@ class HistoryScreen extends StatelessWidget {
           StockLogType.adjustment => c.muted,
           StockLogType.saleVoid => c.critical,
           StockLogType.returned => c.serious,
+          StockLogType.transferIn => c.good,
+          StockLogType.transferOut => c.warning,
+          StockLogType.purchaseReturn => c.serious,
+          StockLogType.expiryWriteOff => c.critical,
         };
 
     return PendScaffold(

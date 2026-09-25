@@ -14,6 +14,15 @@ class AppSettings {
   String? printerName; // paired Bluetooth thermal printer (display name)
   String? printerAddress; // ...and its MAC address, used to reconnect
 
+  // ---- Inventory alerts (spec §27N — configurable thresholds/toggles) ----
+  bool expiryAlertsOn;
+  int nearExpiryDays; // "Near Expiry" — default 30
+  int expirySoonDays; // "Expiry Soon" — default 15
+  int criticalExpiryDays; // "Critical Expiry" — default 7
+  bool lowStockAlertsOn;
+  bool outOfStockAlertsOn;
+  bool batchAlertsOn;
+
   AppSettings({
     this.shop = 'जय किसान पेंड भांडार',
     this.lang = AppLang.both,
@@ -24,6 +33,13 @@ class AppSettings {
     this.gateOverridePct = 5,
     this.printerName,
     this.printerAddress,
+    this.expiryAlertsOn = true,
+    this.nearExpiryDays = 30,
+    this.expirySoonDays = 15,
+    this.criticalExpiryDays = 7,
+    this.lowStockAlertsOn = true,
+    this.outOfStockAlertsOn = true,
+    this.batchAlertsOn = true,
   });
 
   AppSettings copy() => AppSettings(
@@ -36,6 +52,13 @@ class AppSettings {
         gateOverridePct: gateOverridePct,
         printerName: printerName,
         printerAddress: printerAddress,
+        expiryAlertsOn: expiryAlertsOn,
+        nearExpiryDays: nearExpiryDays,
+        expirySoonDays: expirySoonDays,
+        criticalExpiryDays: criticalExpiryDays,
+        lowStockAlertsOn: lowStockAlertsOn,
+        outOfStockAlertsOn: outOfStockAlertsOn,
+        batchAlertsOn: batchAlertsOn,
       );
 
   Map<String, dynamic> toMap() => {
@@ -48,6 +71,13 @@ class AppSettings {
         'gateOverridePct': gateOverridePct,
         'printerName': printerName,
         'printerAddress': printerAddress,
+        'expiryAlertsOn': expiryAlertsOn,
+        'nearExpiryDays': nearExpiryDays,
+        'expirySoonDays': expirySoonDays,
+        'criticalExpiryDays': criticalExpiryDays,
+        'lowStockAlertsOn': lowStockAlertsOn,
+        'outOfStockAlertsOn': outOfStockAlertsOn,
+        'batchAlertsOn': batchAlertsOn,
       };
 
   factory AppSettings.fromMap(Map<String, dynamic> m) => AppSettings(
@@ -62,5 +92,12 @@ class AppSettings {
         gateOverridePct: (m['gateOverridePct'] ?? 5).toDouble(),
         printerName: m['printerName'] as String?,
         printerAddress: m['printerAddress'] as String?,
+        expiryAlertsOn: (m['expiryAlertsOn'] ?? true) as bool,
+        nearExpiryDays: (m['nearExpiryDays'] ?? 30) as int,
+        expirySoonDays: (m['expirySoonDays'] ?? 15) as int,
+        criticalExpiryDays: (m['criticalExpiryDays'] ?? 7) as int,
+        lowStockAlertsOn: (m['lowStockAlertsOn'] ?? true) as bool,
+        outOfStockAlertsOn: (m['outOfStockAlertsOn'] ?? true) as bool,
+        batchAlertsOn: (m['batchAlertsOn'] ?? true) as bool,
       );
 }

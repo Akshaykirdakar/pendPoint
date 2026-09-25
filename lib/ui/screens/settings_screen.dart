@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:unified_esc_pos_printer/unified_esc_pos_printer.dart';
 
 import '../../models/app_settings.dart';
+import '../../services/dev_seed_service.dart';
 import '../../services/thermal_printer_service.dart';
 import '../../state/app_state.dart';
 import '../../utils/theme.dart';
@@ -144,6 +146,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: TextStyle(fontSize: 11.5, color: c.muted)),
           ]),
         ),
+        SectionHeader('🔔 इन्व्हेंटरी सूचना · Inventory Alerts'),
+        Container(
+          decoration: cardDecoration(context),
+          padding: const EdgeInsets.all(4),
+          child: Column(children: [
+            SwitchListTile(
+              title: const Text('एक्सपायरी सूचना · Expiry alerts'),
+              value: app.settings.expiryAlertsOn,
+              onChanged: (v) => _save(context, app, (s) => s.expiryAlertsOn = v),
+            ),
+            _thresholdRow(context, app, 'नजीक एक्सपायरी · Near Expiry (days)',
+                app.settings.nearExpiryDays, (v) => (s) => s.nearExpiryDays = v),
+            _thresholdRow(context, app, 'एक्सपायरी लवकर · Expiry Soon (days)',
+                app.settings.expirySoonDays, (v) => (s) => s.expirySoonDays = v),
+            _thresholdRow(context, app, 'गंभीर एक्सपायरी · Critical Expiry (days)',
+                app.settings.criticalExpiryDays, (v) => (s) => s.criticalExpiryDays = v),
+            SwitchListTile(
+              title: const Text('कमी साठा सूचना · Low stock alerts'),
+              value: app.settings.lowStockAlertsOn,
+              onChanged: (v) => _save(context, app, (s) => s.lowStockAlertsOn = v),
+            ),
+            SwitchListTile(
+              title: const Text('संपलेला साठा सूचना · Out of stock alerts'),
+              value: app.settings.outOfStockAlertsOn,
+              onChanged: (v) => _save(context, app, (s) => s.outOfStockAlertsOn = v),
+            ),
+            SwitchListTile(
+              title: const Text('बॅच सूचना · Batch alerts'),
+              value: app.settings.batchAlertsOn,
+              onChanged: (v) => _save(context, app, (s) => s.batchAlertsOn = v),
+            ),
+          ]),
+        ),
         SectionHeader('बॅकअप · Backup'),
         Container(
           decoration: cardDecoration(context),
@@ -219,8 +254,67 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   )),
         ),
+        if (kDebugMode && isAdmin) ...[
+          const SizedBox(height: 10),
+          Container(
+            decoration: cardDecoration(context),
+            padding: const EdgeInsets.all(14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              BigButton.brand(
+                  _seeding ? 'तयार करत आहे... · Seeding...' : '🌱 Seed Demo Data (Dev only)',
+                  onTap: _seeding ? null : () => _seedDemoData(context, app)),
+              const SizedBox(height: 6),
+              Text(
+                  'Debug-build only — writes real Branch/Brand/Supplier/Product/Batch/'
+                  'Bill records through the same authenticated app code path (not the '
+                  'Admin SDK), so it also proves whether the signed-in user\'s Firestore '
+                  'rules actually allow these writes. Safe to run more than once.',
+                  style: TextStyle(fontSize: 11, color: c.muted)),
+            ]),
+          ),
+        ],
       ]),
     );
+  }
+
+  bool _seeding = false;
+
+  Future<void> _seedDemoData(BuildContext context, AppState app) async {
+    setState(() => _seeding = true);
+    try {
+      final result = await DevSeedService.seed(app);
+      if (!context.mounted) return;
+      await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: context.c.surface,
+          title: Text(result.alreadySeeded ? 'Already seeded' : 'Demo data seeded'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final e in result.created.entries)
+                  if (e.value > 0) Text('${e.key}: +${e.value}'),
+                if (result.notes.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  for (final n in result.notes) Text(n, style: const TextStyle(fontSize: 12)),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        showToast(context, 'Seeding failed: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _seeding = false);
+    }
   }
 
   Future<void> _saveShop(AppState app) async {
@@ -236,6 +330,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } finally {
       if (mounted) setState(() => _shopSaving = false);
     }
+  }
+
+  /// A labeled ±-stepper for one integer threshold in Settings (Near
+  /// Expiry/Expiry Soon/Critical Expiry days — spec §27N), saved immediately
+  /// via [_save] on each tap, same as every other toggle on this screen.
+  Widget _thresholdRow(BuildContext context, AppState app, String label, int value,
+      void Function(AppSettings) Function(int) mutateWith) {
+    final c = context.c;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(children: [
+        Expanded(child: Text(label, style: TextStyle(color: c.ink))),
+        IconButton(
+          icon: const Icon(Icons.remove_circle_outline),
+          onPressed: value <= 1
+              ? null
+              : () => _save(context, app, mutateWith(value - 1)),
+        ),
+        SizedBox(
+            width: 28,
+            child: Text('$value',
+                textAlign: TextAlign.center,
+                style: baloo(size: 14, weight: FontWeight.w700, color: c.ink))),
+        IconButton(
+          icon: const Icon(Icons.add_circle_outline),
+          onPressed: () => _save(context, app, mutateWith(value + 1)),
+        ),
+      ]),
+    );
   }
 
   Future<void> _save(BuildContext context, AppState app,

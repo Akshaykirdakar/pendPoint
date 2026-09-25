@@ -1,5 +1,7 @@
 import '../models/app_settings.dart';
+import '../models/batch.dart';
 import '../models/bill.dart';
+import '../models/branch.dart';
 import '../models/brand.dart';
 import '../models/customer.dart';
 import '../models/enums.dart';
@@ -7,6 +9,7 @@ import '../models/product.dart';
 import '../models/staff.dart';
 import '../models/stock.dart';
 import '../models/stock_log.dart';
+import '../models/supplier.dart';
 
 /// A full bootstrap snapshot of the shop. Kept as a convenience for repository
 /// implementations (e.g. [InMemoryRepository] builds one seed and splits it
@@ -14,8 +17,11 @@ import '../models/stock_log.dart';
 /// the two staged pieces below.
 class Snapshot {
   final List<Brand> brands;
+  final List<Branch> branches;
+  final List<Supplier> suppliers;
   final List<Product> products;
   final Map<String, Stock> stock; // productId -> Stock
+  final List<Batch> batches;
   final List<StockLog> logs;
   final List<Bill> bills;
   final List<Customer> customers;
@@ -25,8 +31,11 @@ class Snapshot {
 
   Snapshot({
     required this.brands,
+    required this.branches,
+    required this.suppliers,
     required this.products,
     required this.stock,
+    required this.batches,
     required this.logs,
     required this.bills,
     required this.customers,
@@ -39,9 +48,12 @@ class Snapshot {
 /// Everything the counter UI needs to open for business: catalogue, current
 /// stock, settings, and staff. Deliberately excludes bills/customers/logs —
 /// [AppState.bootstrap] shows the POS as soon as this loads, without waiting
-/// on potentially-large history.
+/// on potentially-large history. Branches/suppliers are masters (rarely
+/// change) so they load with the core, same as brands.
 class CoreSnapshot {
   final List<Brand> brands;
+  final List<Branch> branches;
+  final List<Supplier> suppliers;
   final List<Product> products;
   final Map<String, Stock> stock;
   final List<Staff> staff;
@@ -50,6 +62,8 @@ class CoreSnapshot {
 
   CoreSnapshot({
     required this.brands,
+    required this.branches,
+    required this.suppliers,
     required this.products,
     required this.stock,
     required this.staff,
@@ -58,19 +72,22 @@ class CoreSnapshot {
   });
 }
 
-/// The potentially-large history data — bills (with items), stock logs, and
-/// customers (with their full ledgers) — loaded in the background after
-/// [CoreSnapshot], so a shop with years of bills doesn't delay opening the
-/// counter screen.
+/// The potentially-large history data — bills (with items), stock logs,
+/// batches, and customers (with their full ledgers) — loaded in the
+/// background after [CoreSnapshot], so a shop with years of bills doesn't
+/// delay opening the counter screen. Batches sit here (not in [CoreSnapshot])
+/// because they mutate on every sale/stock-in, like stock logs.
 class HistorySnapshot {
   final List<StockLog> logs;
   final List<Bill> bills;
   final List<Customer> customers;
+  final List<Batch> batches;
 
   HistorySnapshot({
     required this.logs,
     required this.bills,
     required this.customers,
+    required this.batches,
   });
 }
 
@@ -95,6 +112,11 @@ abstract class Repository {
   Future<void> upsertStaff(Staff staff);
   Future<void> upsertProduct(Product product, {Stock? initialStock});
   Future<void> deleteProduct(String productId);
+
+  Future<void> upsertBranch(Branch branch);
+  Future<void> upsertSupplier(Supplier supplier);
+  Future<void> deleteSupplier(String supplierId);
+  Future<void> upsertBatch(Batch batch);
 
   Future<void> setStock(Stock stock);
   Future<void> addStockLog(StockLog log);

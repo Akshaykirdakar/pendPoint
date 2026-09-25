@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/enums.dart';
 import '../../state/app_state.dart';
+import '../../state/batch_alert_service.dart';
 import '../../utils/formatters.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
@@ -33,8 +34,17 @@ class HomeScreen extends StatelessWidget {
         }
       }
     }
-    final low = app.lowStock;
-    final alertCount = low.length;
+    final low = app.lowStock; // low OR out of stock, for the section below
+    final expired = BatchAlertService.expiredBatches(app);
+    final critical = BatchAlertService.criticalBatches(app);
+    final nearExpiry = BatchAlertService.nearExpiryBatches(app);
+    final outOfStock = BatchAlertService.outOfStockProducts(app);
+    final lowStockOnly = BatchAlertService.lowStockProducts(app); // excludes out-of-stock
+    final alertCount = expired.length +
+        critical.length +
+        nearExpiry.length +
+        outOfStock.length +
+        lowStockOnly.length;
 
     // last 7 days revenue
     final days = List.generate(7, (i) {
@@ -54,6 +64,11 @@ class HomeScreen extends StatelessWidget {
             onTap: () => _push(context, const AlertsScreen()))
       ],
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (alertCount > 0) ...[
+          _alertSummaryCard(context, expired.length, critical.length + nearExpiry.length,
+              lowStockOnly.length, outOfStock.length),
+          const SizedBox(height: 11),
+        ],
         // hero + quick actions
         StatTile(
             hero: true,
@@ -166,6 +181,56 @@ class HomeScreen extends StatelessWidget {
                   sub: 'Sales & discounts',
                   onTap: () => _push(context, const ReportsScreen()))),
         ]),
+      ]),
+    );
+  }
+
+  /// Dashboard "🔔 Inventory Alerts" summary (spec §27C) — real counts from
+  /// [BatchAlertService], each tappable straight to the Alerts screen (which
+  /// shows the underlying records — spec §27O "never just display an alert
+  /// without a path to resolve it").
+  Widget _alertSummaryCard(
+      BuildContext context, int expiredN, int expiringN, int lowN, int outN) {
+    final c = context.c;
+    Widget chip(String emoji, String label, int n, Color color) {
+      if (n == 0) return const SizedBox.shrink();
+      return InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => _push(context, const AlertsScreen()),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(children: [
+            Text(emoji, style: const TextStyle(fontSize: 15)),
+            const SizedBox(width: 8),
+            Expanded(
+                child: Text(label,
+                    style: TextStyle(fontSize: 12.5, color: c.ink, fontWeight: FontWeight.w600))),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(999)),
+              child: Text('$n', style: TextStyle(color: color, fontWeight: FontWeight.w800)),
+            ),
+            Icon(Icons.chevron_right, size: 16, color: c.muted),
+          ]),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: cardDecoration(context),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 6, bottom: 2),
+          child: Text('🔔 इन्व्हेंटरी सूचना · Inventory Alerts',
+              style: baloo(size: 13.5, weight: FontWeight.w700, color: c.ink)),
+        ),
+        chip('🔴', 'एक्सपायर बॅचेस · Expired batches', expiredN, c.critical),
+        chip('🟠', 'लवकर एक्सपायर · Expiring soon', expiringN, c.warning),
+        chip('⚠️', 'कमी साठा · Low stock products', lowN, c.warning),
+        chip('🔴', 'संपलेला साठा · Out of stock', outN, c.critical),
       ]),
     );
   }

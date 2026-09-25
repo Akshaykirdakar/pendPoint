@@ -12,8 +12,15 @@
 //
 // Firestore layout (matches the reviewed spec, Part D):
 //   brands/{brandId}
+//   branches/{branchId}
+//   suppliers/{supplierId}
 //   products/{productId}
-//   stock/{productId}                       (1:1 with product)
+//   stock/{productId}                       (1:1 with product; cross-branch
+//                                             rollup — see [Batch] for the
+//                                             per-branch source of truth)
+//   batches/{batchId}                       (the real, depletable inventory
+//                                             lots — branch+product+supplier
+//                                             scoped, with expiry)
 //   stockLogs/{logId}
 //   bills/{billId}  +  bills/{billId}/billItems/{itemId}   (subcollection)
 //   customers/{customerId}  +  customers/{customerId}/ledgerEntries/{entryId}
@@ -30,7 +37,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/app_settings.dart';
+import '../models/batch.dart';
 import '../models/bill.dart';
+import '../models/branch.dart';
 import '../models/brand.dart';
 import '../models/customer.dart';
 import '../models/enums.dart';
@@ -38,6 +47,7 @@ import '../models/product.dart';
 import '../models/staff.dart';
 import '../models/stock.dart';
 import '../models/stock_log.dart';
+import '../models/supplier.dart';
 import 'repository.dart';
 
 class FirestoreRepository implements Repository {
@@ -55,6 +65,14 @@ class FirestoreRepository implements Repository {
     debugPrint('[pend] fs: reading brands...');
     final brandsSnap = await db.collection('brands').get();
     debugPrint('[pend] fs: brands = ${brandsSnap.size}');
+
+    debugPrint('[pend] fs: reading branches...');
+    final branchesSnap = await db.collection('branches').get();
+    debugPrint('[pend] fs: branches = ${branchesSnap.size}');
+
+    debugPrint('[pend] fs: reading suppliers...');
+    final suppliersSnap = await db.collection('suppliers').get();
+    debugPrint('[pend] fs: suppliers = ${suppliersSnap.size}');
 
     debugPrint('[pend] fs: reading products...');
     final productsSnap = await db.collection('products').get();
@@ -78,17 +96,25 @@ class FirestoreRepository implements Repository {
 
     final brands =
         brandsSnap.docs.map((d) => Brand.fromMap(d.id, d.data())).toList();
+    final branches =
+        branchesSnap.docs.map((d) => Branch.fromMap(d.id, d.data())).toList();
+    final suppliers = suppliersSnap.docs
+        .map((d) => Supplier.fromMap(d.id, d.data()))
+        .toList();
     final products =
         productsSnap.docs.map((d) => Product.fromMap(d.id, d.data())).toList();
     final stock = {
       for (final d in stockSnap.docs) d.id: Stock.fromMap(d.id, d.data())
     };
     debugPrint('[pend] fs: core totals — '
-        'brands=${brands.length}, products=${products.length}, '
+        'brands=${brands.length}, branches=${branches.length}, '
+        'suppliers=${suppliers.length}, products=${products.length}, '
         'stock=${stock.length}');
 
     return CoreSnapshot(
       brands: brands,
+      branches: branches,
+      suppliers: suppliers,
       products: products,
       stock: stock,
       staff: staffSnap.docs.map((d) => Staff.fromMap(d.id, d.data())).toList(),
@@ -123,6 +149,10 @@ class FirestoreRepository implements Repository {
     final customersSnap = await db.collection('customers').get();
     debugPrint('[pend] fs: customers = ${customersSnap.size}');
 
+    debugPrint('[pend] fs: reading batches...');
+    final batchesSnap = await db.collection('batches').get();
+    debugPrint('[pend] fs: batches = ${batchesSnap.size}');
+
     final bills = <Bill>[];
     for (final b in billsSnap.docs) {
       final itemsSnap = await b.reference.collection('billItems').get();
@@ -143,11 +173,14 @@ class FirestoreRepository implements Repository {
 
     final logs =
         logsSnap.docs.map((d) => StockLog.fromMap(d.id, d.data())).toList();
+    final batches =
+        batchesSnap.docs.map((d) => Batch.fromMap(d.id, d.data())).toList();
     debugPrint('[pend] fs: history totals — '
         'bills=${bills.length}, customers=${customers.length}, '
-        'logs=${logs.length}');
+        'logs=${logs.length}, batches=${batches.length}');
 
-    return HistorySnapshot(logs: logs, bills: bills, customers: customers);
+    return HistorySnapshot(
+        logs: logs, bills: bills, customers: customers, batches: batches);
   }
 
   @override
@@ -190,6 +223,28 @@ class FirestoreRepository implements Repository {
     await db.collection('products').doc(productId).delete();
     await db.collection('stock').doc(productId).delete();
   }
+
+  @override
+  Future<void> upsertBranch(Branch branch) => db
+      .collection('branches')
+      .doc(branch.id)
+      .set(branch.toMap(), SetOptions(merge: true));
+
+  @override
+  Future<void> upsertSupplier(Supplier supplier) => db
+      .collection('suppliers')
+      .doc(supplier.id)
+      .set(supplier.toMap(), SetOptions(merge: true));
+
+  @override
+  Future<void> deleteSupplier(String supplierId) =>
+      db.collection('suppliers').doc(supplierId).delete();
+
+  @override
+  Future<void> upsertBatch(Batch batch) => db
+      .collection('batches')
+      .doc(batch.id)
+      .set(batch.toMap(), SetOptions(merge: true));
 
   @override
   Future<void> setStock(Stock stock) =>

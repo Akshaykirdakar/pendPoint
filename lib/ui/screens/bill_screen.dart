@@ -106,9 +106,17 @@ class _BillScreenState extends State<BillScreen> {
                         child: Text('ग्राहक: ${bill.customerName}',
                             style: mono.copyWith(color: c.ink2))),
                   dashes(),
-                  for (final it in bill.items)
-                    li('${app.productOf(it.productId)?.nameMr ?? ''} ${it.saleType == SaleType.bag ? '${it.qty.round()}×गोणी' : kg(it.qty)}',
+                  for (final it in bill.items) ...[
+                    li('${app.productOf(it.productId)?.nameMr ?? ''} ${it.saleType == SaleType.bag ? '${it.qty.round()}×गोणी Bag' : '${kg(it.qty)} सुटे Loose'}',
                         money(it.lineTotal)),
+                    if (app.brandOf(app.productOf(it.productId)?.brandId ?? '') != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Text(
+                            app.brandOf(app.productOf(it.productId)!.brandId)!.nameMr,
+                            style: mono.copyWith(fontSize: 10.5, color: c.muted)),
+                      ),
+                  ],
                   dashes(),
                   li('उप-बेरीज', money(bill.subtotal)),
                   if (bill.discountTotal > 0)
@@ -117,6 +125,11 @@ class _BillScreenState extends State<BillScreen> {
                   dashes(),
                   for (final p in bill.payments)
                     li(p.mode.name.toUpperCase(), money(p.amount)),
+                  if (bill.creditAmount > 0) ...[
+                    dashes(),
+                    li('भरले · Paid', money(bill.total - bill.creditAmount)),
+                    li('बाकी · Outstanding', money(bill.creditAmount), bold: true),
+                  ],
                   const SizedBox(height: 8),
                   Center(
                       child: Text('धन्यवाद! · Thank you 🙏',

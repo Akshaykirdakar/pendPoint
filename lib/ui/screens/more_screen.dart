@@ -6,12 +6,14 @@ import '../../state/app_state.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 import 'alerts_screen.dart';
+import 'batch_report_screen.dart';
 import 'catalogue_screen.dart';
 import 'qr_sheet_screen.dart';
 import 'reports_screen.dart';
 import 'returns_screen.dart';
 import 'settings_screen.dart';
 import 'staff_screen.dart';
+import 'suppliers_screen.dart';
 
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
@@ -43,11 +45,24 @@ class MoreScreen extends StatelessWidget {
         'Sales, discounts, top items',
         const ReportsScreen()
       ),
+      if (isAdmin)
+        (
+          Icons.local_shipping_rounded,
+          'पुरवठादार · Suppliers',
+          'Supplier master & purchase history',
+          const SuppliersScreen()
+        ),
       (
         Icons.notifications_rounded,
         'सूचना · Alerts',
         'Low stock & expiry',
         const AlertsScreen()
+      ),
+      (
+        Icons.inventory_2_rounded,
+        'बॅच व एक्सपायरी · Batch & Expiry',
+        'Batch-wise stock, expiry report',
+        const BatchReportScreen()
       ),
       (
         Icons.undo_rounded,

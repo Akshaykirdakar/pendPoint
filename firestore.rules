@@ -18,9 +18,21 @@ service cloud.firestore {
     match /brands/{id}   { allow read: if isStaff(); allow write: if isAdmin(); }
     match /products/{id} { allow read: if isStaff(); allow write: if isAdmin(); }
 
+    // Branch & Supplier masters: everyone signed in reads (needed for Stock
+    // In's Branch/Supplier dropdowns); only admin manages the masters
+    // themselves (see More → Branches / Suppliers, admin-gated in the app).
+    match /branches/{id}  { allow read: if isStaff(); allow write: if isAdmin(); }
+    match /suppliers/{id} { allow read: if isStaff(); allow write: if isAdmin(); }
+
     // Stock: staff read; staff may write via app (sale deduction, stock-in).
     match /stock/{id}     { allow read, write: if isStaff(); }
     match /stockLogs/{id} { allow read, create: if isStaff(); allow update, delete: if isAdmin(); }
+
+    // Batches: the real, depletable inventory lots — staff write via app
+    // (stock-in creates/tops-up a batch, a sale/void/transfer depletes or
+    // credits one). Never hard-deleted by the app; deletion is admin-only as
+    // a last resort.
+    match /batches/{id} { allow read, create, update: if isStaff(); allow delete: if isAdmin(); }
 
     // Bills: staff create & read; voids (status change) admin-only.
     match /bills/{billId} {

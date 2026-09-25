@@ -5,7 +5,9 @@ import 'package:flutter/foundation.dart';
 
 import '../data/repository.dart';
 import '../models/app_settings.dart';
+import '../models/batch.dart';
 import '../models/bill.dart';
+import '../models/branch.dart';
 import '../models/brand.dart';
 import '../models/customer.dart';
 import '../models/enums.dart';
@@ -13,6 +15,7 @@ import '../models/product.dart';
 import '../models/staff.dart';
 import '../models/stock.dart';
 import '../models/stock_log.dart';
+import '../models/supplier.dart';
 import 'cart_line.dart';
 
 /// Result of trying to finalize a sale.
@@ -36,8 +39,11 @@ class AppState extends ChangeNotifier {
 
   // ---- data ----
   List<Brand> brands = [];
+  List<Branch> branches = [];
+  List<Supplier> suppliers = [];
   List<Product> products = [];
   Map<String, Stock> stock = {};
+  List<Batch> batches = [];
   List<StockLog> logs = [];
   List<Bill> bills = [];
   List<Customer> customers = [];
@@ -45,6 +51,17 @@ class AppState extends ChangeNotifier {
   AppSettings settings = AppSettings();
   bool loading = true;
   Object? bootstrapError;
+
+  /// The branch Stock In/POS/Reports operate against by default. Set once
+  /// branches are known (bootstrap, or after creating the first branch);
+  /// screens that need a specific branch (Stock In, Reports) can still pick a
+  /// different one without changing this.
+  String? activeBranchId;
+
+  void setActiveBranch(String id) {
+    activeBranchId = id;
+    notifyListeners();
+  }
 
   // History (bills, customers+ledgers, stock logs) loads separately, in the
   // background, after the core catalogue/stock — see [bootstrap]. Reports/
@@ -84,10 +101,17 @@ class AppState extends ChangeNotifier {
                 'Timed out loading shop data — check your connection and Firestore rules.'),
           );
       brands = core.brands;
+      // Retain one backing branch for legacy batch data; branch management is
+      // deliberately not exposed in the single-shop app.
+      branches = core.branches.isEmpty ? [] : [core.branches.first];
+      suppliers = core.suppliers;
       products = core.products;
       stock = core.stock;
       staff = core.staff;
       settings = core.settings;
+      await _migrateBranchesAndProducts();
+      activeBranchId ??= branches.where((b) => b.active).firstOrNull?.id ??
+          branches.firstOrNull?.id;
     } catch (error) {
       bootstrapError = error;
     } finally {
@@ -112,6 +136,8 @@ class AppState extends ChangeNotifier {
       logs = history.logs;
       bills = history.bills;
       customers = history.customers;
+      batches = history.batches;
+      await _migrateLegacyStockToBatches();
     } catch (error) {
       if (seq != _bootstrapSeq) return;
       historyError = error;
@@ -126,9 +152,31 @@ class AppState extends ChangeNotifier {
 
   // ---- lookups ----
   Brand? brandOf(String id) => brands.where((b) => b.id == id).firstOrNull;
+  Branch? branchOf(String id) => branches.where((b) => b.id == id).firstOrNull;
+  Supplier? supplierOf(String id) =>
+      suppliers.where((s) => s.id == id).firstOrNull;
   Product? productOf(String id) =>
       products.where((p) => p.id == id).firstOrNull;
   Stock stockOf(String id) => stock[id] ?? Stock(productId: id);
+  Batch? batchOf(String id) => batches.where((b) => b.id == id).firstOrNull;
+
+  /// Batches for one product, optionally narrowed to a branch — sorted FEFO
+  /// (nearest expiry first; batches with no expiry last), per the reviewed
+  /// FEFO allocation rule.
+  List<Batch> batchesOf(String productId, {String? branchId}) {
+    final list = batches
+        .where((b) =>
+            b.productId == productId &&
+            (branchId == null || b.branchId == branchId))
+        .toList()
+      ..sort((a, b) {
+        if (a.expiry == null && b.expiry == null) return 0;
+        if (a.expiry == null) return 1;
+        if (b.expiry == null) return -1;
+        return a.expiry!.compareTo(b.expiry!);
+      });
+    return list;
+  }
   Staff get owner => staff.firstWhere((s) => s.isAdmin,
       orElse: () => staff.isNotEmpty
           ? staff.first
@@ -153,23 +201,21 @@ class AppState extends ChangeNotifier {
   List<Product> get lowStock =>
       products.where((p) => levelOf(p.id) != StockLevel.ok).toList();
 
+  /// Distinct product categories/types currently in the catalogue (for the
+  /// Reports product-type filter). Products without one are simply absent
+  /// from this list — they still show up under "All Products".
+  List<String> get categories {
+    final set = <String>{};
+    for (final p in products) {
+      final cat = p.category;
+      if (cat != null && cat.isNotEmpty) set.add(cat);
+    }
+    final list = set.toList()..sort();
+    return list;
+  }
+
   List<Bill> get finalBills =>
       bills.where((b) => b.status == BillStatus.finalized).toList();
-
-  /// Products with a purchase-log expiry within 30 days and still in stock.
-  List<({Product product, int days, String? batch})> get nearExpiry {
-    final now = DateTime.now();
-    final out = <({Product product, int days, String? batch})>[];
-    for (final l in logs) {
-      if (l.type != StockLogType.purchase || l.expiry == null) continue;
-      final days = l.expiry!.difference(now).inDays;
-      final p = productOf(l.productId);
-      if (days <= 30 && p != null && effKg(l.productId) > 0) {
-        out.add((product: p, days: days, batch: l.batchNo));
-      }
-    }
-    return out;
-  }
 
   // ---- cart ----
   double get cartSubtotal => cart.fold(0.0, (s, l) => s + l.lineTotal);
@@ -266,7 +312,53 @@ class AppState extends ChangeNotifier {
 
   bool verifyOwnerPin(String pin) => pin == owner.pin;
 
-  // ---- finalize sale (atomic stock deduction + credit ledger) ----
+  /// FEFO (First-Expiry-First-Out) allocation plan for one cart line: which
+  /// batches to deplete, and by how much, without mutating anything — see
+  /// the reviewed spec §7/§8/§19. Returns null if [branchId] has less than
+  /// [qtyNeeded] of sellable (non-expired, non-blocked, in-stock) stock for
+  /// this product, so the caller can fail the whole sale before anything is
+  /// written. A product with no batches at all (not yet migrated/stocked)
+  /// falls back to the legacy aggregate [Stock] check instead of failing
+  /// outright, so it can still be sold.
+  List<(Batch, double)>? _planFefo(
+      String productId, String branchId, SaleType saleType, double qtyNeeded) {
+    final product = productOf(productId);
+    if (product == null) return null;
+    final allBatches = batchesOf(productId, branchId: branchId);
+    final candidates = allBatches
+        .where((b) => b.isSellable(product.bagWeightKg))
+        .toList(); // batchesOf already sorts FEFO (nearest expiry first)
+
+    if (allBatches.isEmpty) {
+      // No real batches for this product/branch at all yet — legacy
+      // fallback using the aggregate rollup, so an unmigrated/never-stocked
+      // product doesn't simply refuse to sell. (If batches DO exist but none
+      // are currently sellable — all expired/blocked/depleted — this must
+      // NOT fall back to the aggregate rollup, since that rollup still
+      // counts expired-but-physically-present stock; falling through to the
+      // empty-candidates branch below correctly fails the sale instead.)
+      final s = stockOf(productId);
+      final available =
+          saleType == SaleType.bag ? s.bags.toDouble() : s.looseKg + s.bags * product.bagWeightKg;
+      return available >= qtyNeeded ? [] : null;
+    }
+
+    final plan = <(Batch, double)>[];
+    var remaining = qtyNeeded;
+    for (final b in candidates) {
+      if (remaining <= 0) break;
+      final available = saleType == SaleType.bag
+          ? b.bagsAvailable.toDouble()
+          : b.availableKg(product.bagWeightKg);
+      if (available <= 0) continue;
+      final take = remaining < available ? remaining : available;
+      plan.add((b, take));
+      remaining -= take;
+    }
+    return remaining <= 0.0001 ? plan : null;
+  }
+
+  // ---- finalize sale (FEFO batch allocation + credit ledger) ----
   Future<SaleResult> finalizeSale() async {
     if (cart.isEmpty) {
       return const SaleResult.failure('बिल रिकामे · Cart is empty');
@@ -284,6 +376,25 @@ class AppState extends ChangeNotifier {
       return const SaleResult.failure(
           'उधारसाठी ग्राहक निवडा · Pick a customer for credit');
     }
+    final branchId = activeBranchId;
+    if (branchId == null) {
+      return const SaleResult.failure('शाखा निवडलेली नाही · No branch selected');
+    }
+
+    // Plan every line's FEFO allocation FIRST, without mutating anything —
+    // if any line can't be fully covered by sellable (non-expired) stock,
+    // fail the whole sale before anything is written (spec §19).
+    final plans = <String, List<(Batch, double)>>{}; // cartLine index -> plan
+    for (var i = 0; i < cart.length; i++) {
+      final l = cart[i];
+      final plan = _planFefo(l.productId, branchId, l.saleType, l.qty);
+      if (plan == null) {
+        final p = productOf(l.productId);
+        return SaleResult.failure(
+            'अपुरा साठा · Not enough sellable stock for ${p?.nameMr ?? l.productId}');
+      }
+      plans['$i'] = plan;
+    }
 
     final number = await repo.nextBillNumber();
     final now = DateTime.now();
@@ -291,16 +402,41 @@ class AppState extends ChangeNotifier {
         ? customers.firstWhere((c) => c.id == cartCustomerId)
         : null;
 
-    final items = cart
-        .map((l) => BillItem(
-              productId: l.productId,
-              saleType: l.saleType,
-              qty: l.qty,
-              catalogRate: l.catalogRate,
-              rate: l.rate,
-              lineTotal: l.lineTotal,
-            ))
-        .toList();
+    // Build BillItems — one per (cart line, batch actually used); a line
+    // that spans multiple batches becomes multiple BillItems (spec §8's
+    // split-sale example), each retaining its own batch/expiry/supplier.
+    final items = <BillItem>[];
+    final touchedProducts = <String>{};
+    for (var i = 0; i < cart.length; i++) {
+      final l = cart[i];
+      final plan = plans['$i']!;
+      if (plan.isEmpty) {
+        // Legacy fallback (no real batches yet) — one plain line, no batch info.
+        items.add(BillItem(
+          productId: l.productId,
+          saleType: l.saleType,
+          qty: l.qty,
+          catalogRate: l.catalogRate,
+          rate: l.rate,
+          lineTotal: l.lineTotal,
+        ));
+        continue;
+      }
+      for (final (batch, qty) in plan) {
+        items.add(BillItem(
+          productId: l.productId,
+          saleType: l.saleType,
+          qty: qty,
+          catalogRate: l.catalogRate,
+          rate: l.rate,
+          lineTotal: l.rate * qty,
+          batchId: batch.id,
+          batchNo: batch.batchNo,
+          supplierId: batch.supplierId,
+          expiry: batch.expiry,
+        ));
+      }
+    }
 
     final bill = Bill(
       id: 'BILL$number',
@@ -314,42 +450,88 @@ class AppState extends ChangeNotifier {
       payments: List.of(payments),
       at: now,
       staffId: owner.id,
+      branchId: branchId,
     );
 
-    // Deduct stock; open bags as needed for by-weight sales.
-    for (final it in items) {
-      final s = stockOf(it.productId);
-      final p = productOf(it.productId)!;
-      if (it.saleType == SaleType.bag) {
-        s.bags -= it.qty.round();
-      } else {
-        var need = it.qty;
-        while (s.looseKg < need && s.bags > 0) {
-          s.bags -= 1;
-          s.looseKg += p.bagWeightKg;
-          _log(StockLog(
-            id: _uid('L'),
-            productId: it.productId,
-            type: StockLogType.bagOpened,
-            bagsDelta: -1,
-            looseKgDelta: p.bagWeightKg.toDouble(),
-            note: 'auto on sale',
-            at: now,
-          ));
+    // Commit: deduct each allocated batch (opening its own bags as needed
+    // for a by-weight sale, so the kg sold traces back to the same batch),
+    // and log one StockLog per batch actually depleted.
+    for (var i = 0; i < cart.length; i++) {
+      final l = cart[i];
+      final plan = plans['$i']!;
+      final p = productOf(l.productId)!;
+      touchedProducts.add(l.productId);
+      if (plan.isEmpty) {
+        // Legacy aggregate deduction (no batches yet for this product).
+        final s = stockOf(l.productId);
+        if (l.saleType == SaleType.bag) {
+          s.bags -= l.qty.round();
+        } else {
+          var need = l.qty;
+          while (s.looseKg < need && s.bags > 0) {
+            s.bags -= 1;
+            s.looseKg += p.bagWeightKg;
+          }
+          s.looseKg -= need;
         }
-        s.looseKg -= need;
+        stock[l.productId] = s;
+        await repo.setStock(s);
+        _log(StockLog(
+          id: _uid('L'),
+          productId: l.productId,
+          type: StockLogType.sale,
+          bagsDelta: l.saleType == SaleType.bag ? -l.qty.round() : 0,
+          looseKgDelta: l.saleType == SaleType.kg ? -l.qty : 0,
+          billId: bill.id,
+          branchId: branchId,
+          at: now,
+        ));
+        continue;
       }
-      stock[it.productId] = s;
-      await repo.setStock(s);
-      _log(StockLog(
-        id: _uid('L'),
-        productId: it.productId,
-        type: StockLogType.sale,
-        bagsDelta: it.saleType == SaleType.bag ? -it.qty.round() : 0,
-        looseKgDelta: it.saleType == SaleType.kg ? -it.qty : 0,
-        billId: bill.id,
-        at: now,
-      ));
+      for (final (batch, qty) in plan) {
+        if (l.saleType == SaleType.bag) {
+          batch.bagsAvailable -= qty.round();
+          batch.bagsSold += qty.round();
+        } else {
+          var need = qty;
+          // Open this SAME batch's bags as needed — the kg sold must trace
+          // back to the batch it actually came from (spec §7).
+          while (batch.looseKgAvailable < need && batch.bagsAvailable > 0) {
+            batch.bagsAvailable -= 1;
+            batch.looseKgAvailable += p.bagWeightKg;
+            _log(StockLog(
+              id: _uid('L'),
+              productId: l.productId,
+              type: StockLogType.bagOpened,
+              bagsDelta: -1,
+              looseKgDelta: p.bagWeightKg.toDouble(),
+              note: 'auto on sale',
+              branchId: branchId,
+              batchId: batch.id,
+              at: now,
+            ));
+          }
+          batch.looseKgAvailable -= need;
+          batch.looseKgSold += need;
+        }
+        batch.updatedAt = now;
+        await repo.upsertBatch(batch);
+        _log(StockLog(
+          id: _uid('L'),
+          productId: l.productId,
+          type: StockLogType.sale,
+          bagsDelta: l.saleType == SaleType.bag ? -qty.round() : 0,
+          looseKgDelta: l.saleType == SaleType.kg ? -qty : 0,
+          billId: bill.id,
+          branchId: branchId,
+          batchId: batch.id,
+          supplierId: batch.supplierId,
+          at: now,
+        ));
+      }
+    }
+    for (final pid in touchedProducts) {
+      recomputeStockFor(pid);
     }
 
     bills.insert(0, bill);
@@ -382,15 +564,34 @@ class AppState extends ChangeNotifier {
     if (idx < 0 || bills[idx].status == BillStatus.voided) return;
     final b = bills[idx];
     final now = DateTime.now();
+    final touchedProducts = <String>{};
     for (final it in b.items) {
-      final s = stockOf(it.productId);
-      if (it.saleType == SaleType.bag) {
-        s.bags += it.qty.round();
+      touchedProducts.add(it.productId);
+      // Credit back to the exact batch this line was sold from (spec §13 —
+      // "prefer returning stock to the original batch"); a legacy line with
+      // no batchId (sold before batch tracking, or a never-migrated
+      // product) falls back to the aggregate rollup.
+      final batch = it.batchId == null ? null : batchOf(it.batchId!);
+      if (batch != null) {
+        if (it.saleType == SaleType.bag) {
+          batch.bagsAvailable += it.qty.round();
+          batch.bagsSold -= it.qty.round();
+        } else {
+          batch.looseKgAvailable += it.qty;
+          batch.looseKgSold -= it.qty;
+        }
+        batch.updatedAt = now;
+        await repo.upsertBatch(batch);
       } else {
-        s.looseKg += it.qty;
+        final s = stockOf(it.productId);
+        if (it.saleType == SaleType.bag) {
+          s.bags += it.qty.round();
+        } else {
+          s.looseKg += it.qty;
+        }
+        stock[it.productId] = s;
+        await repo.setStock(s);
       }
-      stock[it.productId] = s;
-      await repo.setStock(s);
       _log(StockLog(
         id: _uid('L'),
         productId: it.productId,
@@ -400,7 +601,13 @@ class AppState extends ChangeNotifier {
         billId: b.id,
         note: 'bill #${b.billNumber}',
         at: now,
+        branchId: b.branchId,
+        batchId: it.batchId,
+        supplierId: it.supplierId,
       ));
+    }
+    for (final pid in touchedProducts) {
+      recomputeStockFor(pid);
     }
     // Reverse credit.
     if (b.customerId != null && b.creditAmount > 0) {
@@ -423,23 +630,157 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// How much of one bill line has already been returned — scans existing
+  /// [StockLogType.returned] entries logged against this exact bill+line
+  /// (matched by billId + batchId + productId), so a partial return can
+  /// never exceed what that line actually sold (spec §13/§19). A legacy
+  /// line with no batchId is matched by billId + productId alone.
+  double returnedSoFar(Bill bill, BillItem item) => logs
+      .where((l) =>
+          l.type == StockLogType.returned &&
+          l.billId == bill.id &&
+          l.productId == item.productId &&
+          l.batchId == item.batchId)
+      .fold(0.0, (s, l) => s + l.bagsDelta.abs() + l.looseKgDelta.abs());
+
+  /// Partial sales return (spec §13): credits [qty] back to the exact batch
+  /// [item] was sold from (falling back to the aggregate rollup for a
+  /// legacy line with no batch), and never lets the total returned on this
+  /// line exceed what it originally sold. Does not alter the original bill
+  /// — bills are an immutable audit record; the return is its own logged
+  /// movement, traceable back to [bill] via [StockLog.billId].
+  Future<String?> returnSaleLine(Bill bill, BillItem item, double qty) async {
+    if (qty <= 0) return 'योग्य प्रमाण टाका · Enter a valid quantity';
+    final already = returnedSoFar(bill, item);
+    if (already + qty > item.qty + 0.0001) {
+      return 'मूळ विक्रीपेक्षा जास्त परतावा शक्य नाही · Cannot return more than sold';
+    }
+    final now = DateTime.now();
+    final batch = item.batchId == null ? null : batchOf(item.batchId!);
+    if (batch != null) {
+      if (item.saleType == SaleType.bag) {
+        batch.bagsAvailable += qty.round();
+        batch.bagsReturned += qty.round();
+      } else {
+        batch.looseKgAvailable += qty;
+        batch.looseKgReturned += qty;
+      }
+      batch.updatedAt = now;
+      await repo.upsertBatch(batch);
+    } else {
+      final s = stockOf(item.productId);
+      if (item.saleType == SaleType.bag) {
+        s.bags += qty.round();
+      } else {
+        s.looseKg += qty;
+      }
+      stock[item.productId] = s;
+      await repo.setStock(s);
+    }
+    recomputeStockFor(item.productId);
+    _log(StockLog(
+      id: _uid('L'),
+      productId: item.productId,
+      type: StockLogType.returned,
+      bagsDelta: item.saleType == SaleType.bag ? qty.round() : 0,
+      looseKgDelta: item.saleType == SaleType.kg ? qty : 0,
+      billId: bill.id,
+      note: 'partial return · bill #${bill.billNumber}',
+      at: now,
+      branchId: bill.branchId,
+      batchId: item.batchId,
+      supplierId: item.supplierId,
+    ));
+    notifyListeners();
+    return null;
+  }
+
   // ---- inventory ----
-  Future<void> stockIn(String productId, int bags,
-      {double? cost, String? batch, DateTime? expiry, String? supplier}) async {
-    final s = stockOf(productId);
-    s.bags += bags;
-    stock[productId] = s;
-    await repo.setStock(s);
+  /// Records a purchase against a real [Batch] (spec §1/§5/§17: Branch →
+  /// Product → Supplier → Batch → Expiry → Stock). If a still-active batch
+  /// with the same (branch, product, batchNo) already exists, tops it up
+  /// (spec §5 "handle it according to existing inventory rules instead of
+  /// blindly creating duplicate batches") rather than creating a second one;
+  /// otherwise creates a new batch. Always keeps the cross-branch [Stock]
+  /// rollup in sync via [recomputeStockFor].
+  ///
+  /// Validation (spec §19) is the caller's job for user-facing messages
+  /// (see [StockInScreen]) — this asserts the same invariants defensively so
+  /// a programming mistake fails loudly rather than corrupting inventory.
+  Future<void> stockIn({
+    required String branchId,
+    required String productId,
+    required String supplierId,
+    String? batchNo,
+    DateTime? manufactureDate,
+    DateTime? expiry,
+    int bags = 0,
+    double looseKg = 0,
+    double? cost,
+  }) async {
+    assert(bags > 0 || looseKg > 0, 'stockIn: quantity must be > 0');
+    final product = productOf(productId);
+    assert(product != null, 'stockIn: unknown product');
+    if (product == null) return;
+    assert(!product.batchTrackingEnabled || (batchNo != null && batchNo.isNotEmpty),
+        'stockIn: batch number required for this product');
+    assert(!product.expiryTrackingEnabled || expiry != null,
+        'stockIn: expiry required for this product');
+
+    final now = DateTime.now();
+    Batch? target;
+    if (batchNo != null && batchNo.isNotEmpty) {
+      target = batches
+          .where((b) =>
+              b.branchId == branchId &&
+              b.productId == productId &&
+              b.batchNo == batchNo &&
+              b.status == BatchStatus.active)
+          .firstOrNull;
+    }
+
+    if (target != null) {
+      target.bagsReceived += bags;
+      target.bagsAvailable += bags;
+      target.looseKgAvailable += looseKg;
+      if (cost != null) target.unitCost = cost; // latest purchase cost wins
+      target.updatedAt = now;
+      await repo.upsertBatch(target);
+    } else {
+      target = Batch(
+        id: _uid('batch'),
+        branchId: branchId,
+        productId: productId,
+        supplierId: supplierId,
+        batchNo: batchNo ?? 'B-${DateTime.now().millisecondsSinceEpoch}',
+        manufactureDate: manufactureDate,
+        expiry: expiry,
+        unitCost: cost ?? 0,
+        bagsReceived: bags,
+        bagsAvailable: bags,
+        looseKgAvailable: looseKg,
+        createdAt: now,
+        updatedAt: now,
+      );
+      batches.add(target);
+      await repo.upsertBatch(target);
+    }
+
+    recomputeStockFor(productId);
     _log(StockLog(
       id: _uid('L'),
       productId: productId,
       type: StockLogType.purchase,
       bagsDelta: bags,
+      looseKgDelta: looseKg,
       cost: cost,
-      batchNo: batch,
+      batchNo: target.batchNo,
       expiry: expiry,
-      supplier: supplier,
-      at: DateTime.now(),
+      supplier: supplierOf(supplierId)?.name,
+      at: now,
+      branchId: branchId,
+      batchId: target.id,
+      supplierId: supplierId,
     ));
     notifyListeners();
   }
@@ -479,6 +820,91 @@ class AppState extends ChangeNotifier {
         note: note,
         at: DateTime.now()));
     notifyListeners();
+  }
+
+  /// Branch-to-branch stock transfer (spec §14). Deducts [qty] from
+  /// [sourceBatchId] and creates or tops up a batch in [destBranchId]
+  /// carrying the same batch no./expiry/cost/supplier, linked back via
+  /// [Batch.sourceBatchId] — never merged into a destination batch that
+  /// came from a *different* origin batch, so distinct lots stay distinct.
+  Future<String?> transferStock(
+      String sourceBatchId, String destBranchId, {int bags = 0, double looseKg = 0}) async {
+    final source = batchOf(sourceBatchId);
+    if (source == null) return 'बॅच सापडली नाही · Batch not found';
+    if (bags <= 0 && looseKg <= 0) {
+      return 'योग्य प्रमाण टाका · Enter a valid quantity';
+    }
+    if (bags > source.bagsAvailable || looseKg > source.looseKgAvailable + 0.0001) {
+      return 'उपलब्ध साठ्यापेक्षा जास्त हस्तांतरण शक्य नाही · Cannot transfer more than available';
+    }
+    final now = DateTime.now();
+    source.bagsAvailable -= bags;
+    source.looseKgAvailable -= looseKg;
+    source.updatedAt = now;
+    await repo.upsertBatch(source);
+    _log(StockLog(
+      id: _uid('L'),
+      productId: source.productId,
+      type: StockLogType.transferOut,
+      bagsDelta: -bags,
+      looseKgDelta: -looseKg,
+      note: 'to branch $destBranchId',
+      at: now,
+      branchId: source.branchId,
+      batchId: source.id,
+      supplierId: source.supplierId,
+    ));
+
+    // Same batch no. already open at the destination (from an earlier
+    // transfer of this same lot) — top it up rather than duplicating it.
+    var dest = batches
+        .where((b) =>
+            b.branchId == destBranchId &&
+            b.sourceBatchId == source.id &&
+            b.status == BatchStatus.active)
+        .firstOrNull;
+    if (dest != null) {
+      dest.bagsReceived += bags;
+      dest.bagsAvailable += bags;
+      dest.looseKgAvailable += looseKg;
+      dest.updatedAt = now;
+      await repo.upsertBatch(dest);
+    } else {
+      dest = Batch(
+        id: _uid('batch'),
+        branchId: destBranchId,
+        productId: source.productId,
+        supplierId: source.supplierId,
+        batchNo: source.batchNo,
+        manufactureDate: source.manufactureDate,
+        expiry: source.expiry,
+        unitCost: source.unitCost,
+        bagsReceived: bags,
+        bagsAvailable: bags,
+        looseKgAvailable: looseKg,
+        sourceBatchId: source.id,
+        createdAt: now,
+        updatedAt: now,
+      );
+      batches.add(dest);
+      await repo.upsertBatch(dest);
+    }
+    _log(StockLog(
+      id: _uid('L'),
+      productId: source.productId,
+      type: StockLogType.transferIn,
+      bagsDelta: bags,
+      looseKgDelta: looseKg,
+      note: 'from branch ${source.branchId}',
+      at: now,
+      branchId: destBranchId,
+      batchId: dest.id,
+      supplierId: source.supplierId,
+    ));
+
+    recomputeStockFor(source.productId);
+    notifyListeners();
+    return null;
   }
 
   // ---- customers / khata ----
@@ -526,7 +952,8 @@ class AppState extends ChangeNotifier {
       double costPrice = 0,
       double minPriceFloor = 0,
       int? lowThreshold,
-      Object? photoUrl = _notProvided}) async {
+      Object? photoUrl = _notProvided,
+      Object? category = _notProvided}) async {
     late final Product saved;
     if (id != null) {
       final idx = products.indexWhere((p) => p.id == id);
@@ -543,6 +970,9 @@ class AppState extends ChangeNotifier {
         photoUrl: identical(photoUrl, _notProvided)
             ? products[idx].photoUrl
             : photoUrl as String?,
+        category: identical(category, _notProvided)
+            ? products[idx].category
+            : category as String?,
       );
       await repo.upsertProduct(products[idx]);
       saved = products[idx];
@@ -561,6 +991,8 @@ class AppState extends ChangeNotifier {
         qr: 'PEND-${DateTime.now().millisecondsSinceEpoch}',
         photoUrl:
             identical(photoUrl, _notProvided) ? null : photoUrl as String?,
+        category:
+            identical(category, _notProvided) ? null : category as String?,
       );
       products.add(np);
       stock[np.id] = Stock(productId: np.id);
@@ -589,6 +1021,97 @@ class AppState extends ChangeNotifier {
       brands.add(b);
       await repo.upsertBrand(b);
     }
+    notifyListeners();
+  }
+
+  Future<void> saveBranch(
+      {String? id,
+      required String name,
+      required String nameMr,
+      String address = '',
+      bool active = true}) async {
+    if (id != null) {
+      final idx = branches.indexWhere((b) => b.id == id);
+      branches[idx] = branches[idx]
+          .copyWith(name: name, nameMr: nameMr, address: address, active: active);
+      await repo.upsertBranch(branches[idx]);
+    } else {
+      final b = Branch(
+          id: _uid('br'), name: name, nameMr: nameMr, address: address);
+      branches.add(b);
+      await repo.upsertBranch(b);
+      activeBranchId ??= b.id;
+    }
+    notifyListeners();
+  }
+
+  // ---- suppliers ----
+  Future<Supplier> saveSupplier(
+      {String? id,
+      required String name,
+      String mobile = '',
+      String altMobile = '',
+      String address = '',
+      String gstin = '',
+      String email = '',
+      double openingBalance = 0,
+      bool active = true,
+      String notes = ''}) async {
+    late final Supplier saved;
+    if (id != null) {
+      final idx = suppliers.indexWhere((s) => s.id == id);
+      suppliers[idx] = suppliers[idx].copyWith(
+        name: name,
+        mobile: mobile,
+        altMobile: altMobile,
+        address: address,
+        gstin: gstin,
+        email: email,
+        openingBalance: openingBalance,
+        active: active,
+        notes: notes,
+      );
+      saved = suppliers[idx];
+    } else {
+      saved = Supplier(
+        id: _uid('sup'),
+        name: name,
+        mobile: mobile,
+        altMobile: altMobile,
+        address: address,
+        gstin: gstin,
+        email: email,
+        openingBalance: openingBalance,
+        active: active,
+        notes: notes,
+        createdAt: DateTime.now(),
+      );
+      suppliers.add(saved);
+    }
+    await repo.upsertSupplier(saved);
+    notifyListeners();
+    return saved;
+  }
+
+  /// A supplier referenced by any batch/purchase can never be hard-deleted —
+  /// only deactivated (spec: "Do NOT hard-delete a supplier that is
+  /// referenced by purchases, stock batches, bills or accounting records").
+  bool supplierHasHistory(String supplierId) =>
+      batches.any((b) => b.supplierId == supplierId) ||
+      logs.any((l) => l.supplierId == supplierId);
+
+  Future<void> deleteSupplier(String id) async {
+    if (supplierHasHistory(id)) {
+      // Soft-delete: deactivate instead of removing the record.
+      final idx = suppliers.indexWhere((s) => s.id == id);
+      if (idx < 0) return;
+      suppliers[idx] = suppliers[idx].copyWith(active: false);
+      await repo.upsertSupplier(suppliers[idx]);
+      notifyListeners();
+      return;
+    }
+    suppliers.removeWhere((s) => s.id == id);
+    await repo.deleteSupplier(id);
     notifyListeners();
   }
 
@@ -634,6 +1157,84 @@ class AppState extends ChangeNotifier {
   int _seq = 0;
   String _uid(String prefix) =>
       '$prefix${DateTime.now().microsecondsSinceEpoch}${_seq++}';
+
+  /// Recomputes the cross-branch [Stock] rollup for one product from its
+  /// [batches] — the batches are the source of truth; [stock] is only a fast,
+  /// branch-agnostic read path for dashboard/product-list display (see the
+  /// reviewed branch/batch/expiry architecture). Call after any batch
+  /// mutation (stock-in, sale, void, adjustment, transfer).
+  void recomputeStockFor(String productId) {
+    var bags = 0;
+    var looseKg = 0.0;
+    for (final b in batches.where((b) => b.productId == productId)) {
+      bags += b.bagsAvailable;
+      looseKg += b.looseKgAvailable;
+    }
+    final s = Stock(productId: productId, bags: bags, looseKg: looseKg);
+    stock[productId] = s;
+    unawaited(repo.setStock(s));
+  }
+
+  // ---- migration: pre-branch/batch data → the new architecture ----
+  // Runs once, automatically, the first time a shop with no branches yet is
+  // opened (a fresh Firestore project or an existing one from before this
+  // change) — see reviewed spec §18 "do not break existing data". Both steps
+  // are idempotent (gated on "nothing to migrate yet") so a retried
+  // bootstrap, or a shop that already has branches, never re-runs them.
+  bool _migratedBranches = false;
+  Future<void> _migrateBranchesAndProducts() async {
+    if (_migratedBranches || branches.isNotEmpty) {
+      _migratedBranches = true;
+      return;
+    }
+    _migratedBranches = true;
+    final main = Branch(id: _uid('br'), name: 'Main Branch', nameMr: 'मुख्य शाखा');
+    branches.add(main);
+    await repo.upsertBranch(main);
+    for (var i = 0; i < products.length; i++) {
+      if (products[i].branchIds.isNotEmpty) continue;
+      products[i] = products[i].copyWith(branchIds: [main.id]);
+      await repo.upsertProduct(products[i]);
+    }
+  }
+
+  /// Step two of the migration — needs [batches] (history-tier) to know
+  /// whether it has already run. For every product with real stock but no
+  /// batch yet, creates exactly ONE legacy batch holding that current
+  /// quantity (see the reviewed migration strategy: this deliberately does
+  /// NOT try to reconstruct one batch per historical purchase log, since the
+  /// old aggregate model never tracked remaining-quantity-per-purchase and
+  /// guessing would misstate it — historical StockLogs stay exactly as they
+  /// are, untouched, as a read-only audit trail).
+  bool _migratedBatches = false;
+  Future<void> _migrateLegacyStockToBatches() async {
+    if (_migratedBatches || batches.isNotEmpty) {
+      _migratedBatches = true;
+      return;
+    }
+    _migratedBatches = true;
+    final mainBranchId = activeBranchId ?? branches.firstOrNull?.id;
+    if (mainBranchId == null) return; // no branch to attach legacy stock to
+    final now = DateTime.now();
+    for (final p in products) {
+      final s = stockOf(p.id);
+      if (s.bags <= 0 && s.looseKg <= 0) continue;
+      final b = Batch(
+        id: _uid('batch'),
+        branchId: mainBranchId,
+        productId: p.id,
+        batchNo: 'LEGACY-${p.id}',
+        unitCost: p.costPrice,
+        bagsReceived: s.bags,
+        bagsAvailable: s.bags,
+        looseKgAvailable: s.looseKg,
+        createdAt: now,
+        updatedAt: now,
+      );
+      batches.add(b);
+      await repo.upsertBatch(b);
+    }
+  }
 }
 
 const Object _notProvided = Object();

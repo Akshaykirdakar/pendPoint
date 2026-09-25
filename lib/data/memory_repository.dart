@@ -1,5 +1,7 @@
 import '../models/app_settings.dart';
+import '../models/batch.dart';
 import '../models/bill.dart';
+import '../models/branch.dart';
 import '../models/brand.dart';
 import '../models/customer.dart';
 import '../models/enums.dart';
@@ -7,6 +9,7 @@ import '../models/product.dart';
 import '../models/stock.dart';
 import '../models/stock_log.dart';
 import '../models/staff.dart';
+import '../models/supplier.dart';
 import 'repository.dart';
 import 'seed_data.dart';
 
@@ -30,6 +33,8 @@ class InMemoryRepository implements Repository {
     _counter = snap.billCounter;
     return CoreSnapshot(
       brands: snap.brands,
+      branches: snap.branches,
+      suppliers: snap.suppliers,
       products: snap.products,
       stock: snap.stock,
       staff: snap.staff,
@@ -46,6 +51,7 @@ class InMemoryRepository implements Repository {
       logs: snap.logs,
       bills: snap.bills,
       customers: snap.customers,
+      batches: snap.batches,
     );
   }
 
@@ -60,6 +66,14 @@ class InMemoryRepository implements Repository {
   Future<void> upsertProduct(Product product, {Stock? initialStock}) async {}
   @override
   Future<void> deleteProduct(String productId) async {}
+  @override
+  Future<void> upsertBranch(Branch branch) async {}
+  @override
+  Future<void> upsertSupplier(Supplier supplier) async {}
+  @override
+  Future<void> deleteSupplier(String supplierId) async {}
+  @override
+  Future<void> upsertBatch(Batch batch) async {}
   @override
   Future<void> setStock(Stock stock) async {}
   @override

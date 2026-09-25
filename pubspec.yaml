@@ -27,6 +27,9 @@ dependencies:
   # during every widget test, even though this application targets Android.
   libserialport_plus: 0.1.1
   image: ^4.9.2
+  pdf: ^3.13.0
+  share_plus: ^13.3.0
+  archive: ^4.0.9
 
   # --- Firebase (backend). Uncomment after `flutterfire configure`. ---
   # firebase_core: ^3.6.0
@@ -44,5 +47,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  # assets:
-  #   - assets/
+  assets:
+    - assets/fonts/NotoSansDevanagari-Regular.ttf
+    - assets/fonts/NotoSansDevanagari-Bold.ttf

@@ -13,6 +13,15 @@ class BillItem {
   final double rate; // price actually charged
   final double lineTotal;
 
+  /// Which batch this line actually depleted (null on bills created before
+  /// batch tracking existed, or for a not-batch-tracked product) — see the
+  /// reviewed branch/batch/expiry architecture. A product sold across
+  /// multiple batches in one sale produces one [BillItem] per batch used.
+  final String? batchId;
+  final String? batchNo;
+  final String? supplierId;
+  final DateTime? expiry;
+
   const BillItem({
     required this.productId,
     required this.saleType,
@@ -20,6 +29,10 @@ class BillItem {
     required this.catalogRate,
     required this.rate,
     required this.lineTotal,
+    this.batchId,
+    this.batchNo,
+    this.supplierId,
+    this.expiry,
   });
 
   bool get isPriceOverridden => rate != catalogRate;
@@ -33,6 +46,10 @@ class BillItem {
         'rate': rate,
         'lineTotal': lineTotal,
         'isPriceOverridden': isPriceOverridden,
+        'batchId': batchId,
+        'batchNo': batchNo,
+        'supplierId': supplierId,
+        'expiry': expiry?.toIso8601String(),
       };
 
   factory BillItem.fromMap(Map<String, dynamic> m) => BillItem(
@@ -42,6 +59,10 @@ class BillItem {
         catalogRate: (m['catalogRateAtSale'] ?? m['rate'] ?? 0).toDouble(),
         rate: (m['rate'] ?? 0).toDouble(),
         lineTotal: (m['lineTotal'] ?? 0).toDouble(),
+        batchId: m['batchId'] as String?,
+        batchNo: m['batchNo'] as String?,
+        supplierId: m['supplierId'] as String?,
+        expiry: m['expiry'] != null ? DateTime.tryParse(m['expiry']) : null,
       );
 }
 
@@ -69,6 +90,7 @@ class Bill {
   final BillStatus status;
   final DateTime at;
   final String? staffId;
+  final String? branchId; // null on bills created before branches existed
 
   const Bill({
     required this.id,
@@ -83,6 +105,7 @@ class Bill {
     this.status = BillStatus.finalized,
     required this.at,
     this.staffId,
+    this.branchId,
   });
 
   double get creditAmount => payments
@@ -102,6 +125,7 @@ class Bill {
         status: status ?? this.status,
         at: at,
         staffId: staffId,
+        branchId: branchId,
       );
 
   Map<String, dynamic> toMap() => {
@@ -115,6 +139,7 @@ class Bill {
         'status': status.id,
         'createdAt': at.toIso8601String(),
         'createdBy': staffId,
+        'branchId': branchId,
         // billItems are a subcollection in Firestore — see FirestoreRepository.
       };
 
@@ -135,5 +160,6 @@ class Bill {
         status: BillStatusX.fromId(m['status'] as String?),
         at: DateTime.tryParse(m['createdAt'] ?? '') ?? DateTime.now(),
         staffId: m['createdBy'] as String?,
+        branchId: m['branchId'] as String?,
       );
 }

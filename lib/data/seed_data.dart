@@ -1,5 +1,7 @@
 import '../models/app_settings.dart';
+import '../models/batch.dart';
 import '../models/bill.dart';
+import '../models/branch.dart';
 import '../models/brand.dart';
 import '../models/customer.dart';
 import '../models/enums.dart';
@@ -7,6 +9,7 @@ import '../models/product.dart';
 import '../models/staff.dart';
 import '../models/stock.dart';
 import '../models/stock_log.dart';
+import '../models/supplier.dart';
 import 'repository.dart';
 
 DateTime _daysAgo(int n) {
@@ -25,6 +28,41 @@ Snapshot buildSeed() {
     const Brand(id: 'b3', name: 'Local / सुटे', nameMr: 'स्थानिक'),
   ];
 
+  final branches = [
+    const Branch(
+        id: 'br1', name: 'Pune', nameMr: 'पुणे', address: 'FC Road, Pune'),
+  ];
+
+  final suppliers = [
+    Supplier(
+        id: 'sup1',
+        name: 'ABC Traders',
+        mobile: '98765 43210',
+        address: 'APMC Market, Pune',
+        active: true,
+        createdAt: _daysAgo(400)),
+    Supplier(
+        id: 'sup2',
+        name: 'XYZ Traders',
+        mobile: '90123 45678',
+        address: 'Market Yard, Pune',
+        active: true,
+        createdAt: _daysAgo(380)),
+    Supplier(
+        id: 'sup3',
+        name: 'Godrej Distributor',
+        mobile: '99887 76655',
+        gstin: '27AAAAA0000A1Z5',
+        active: true,
+        createdAt: _daysAgo(500)),
+    Supplier(
+        id: 'sup4',
+        name: 'Local mill',
+        mobile: '88990 01122',
+        active: true,
+        createdAt: _daysAgo(300)),
+  ];
+
   final products = [
     const Product(
         id: 'p1',
@@ -38,7 +76,7 @@ Snapshot buildSeed() {
         costPrice: 1300,
         minPriceFloor: 1350,
         lowStockThresholdBags: 5,
-        qr: 'PEND-P1'),
+        qr: 'PEND-P1', branchIds: ['br1']),
     const Product(
         id: 'p2',
         brandId: 'b1',
@@ -51,7 +89,7 @@ Snapshot buildSeed() {
         costPrice: 1180,
         minPriceFloor: 1240,
         lowStockThresholdBags: 5,
-        qr: 'PEND-P2'),
+        qr: 'PEND-P2', branchIds: ['br1']),
     const Product(
         id: 'p3',
         brandId: 'b2',
@@ -64,7 +102,7 @@ Snapshot buildSeed() {
         costPrice: 1120,
         minPriceFloor: 1170,
         lowStockThresholdBags: 6,
-        qr: 'PEND-P3'),
+        qr: 'PEND-P3', branchIds: ['br1']),
     const Product(
         id: 'p4',
         brandId: 'b2',
@@ -77,7 +115,7 @@ Snapshot buildSeed() {
         costPrice: 1040,
         minPriceFloor: 1090,
         lowStockThresholdBags: 5,
-        qr: 'PEND-P4'),
+        qr: 'PEND-P4', branchIds: ['br1']),
     const Product(
         id: 'p5',
         brandId: 'b3',
@@ -90,7 +128,7 @@ Snapshot buildSeed() {
         costPrice: 850,
         minPriceFloor: 900,
         lowStockThresholdBags: 8,
-        qr: 'PEND-P5'),
+        qr: 'PEND-P5', branchIds: ['br1']),
     const Product(
         id: 'p6',
         brandId: 'b3',
@@ -103,17 +141,133 @@ Snapshot buildSeed() {
         costPrice: 930,
         minPriceFloor: 980,
         lowStockThresholdBags: 6,
-        qr: 'PEND-P6'),
+        qr: 'PEND-P6', branchIds: ['br1']),
   ];
 
+  // Stock rollups equal the sum of the batches below for each product. The
+  // extra bag on p4 is the
+  // deliberately-expired batch8, still physically on the shelf).
   final stock = <String, Stock>{
-    'p1': Stock(productId: 'p1', bags: 38, looseKg: 12),
+    'p1': Stock(productId: 'p1', bags: 48, looseKg: 12),
     'p2': Stock(productId: 'p2', bags: 4, looseKg: 22),
     'p3': Stock(productId: 'p3', bags: 21, looseKg: 0),
-    'p4': Stock(productId: 'p4', bags: 2, looseKg: 8),
+    'p4': Stock(productId: 'p4', bags: 3, looseKg: 8),
     'p5': Stock(productId: 'p5', bags: 0, looseKg: 17),
     'p6': Stock(productId: 'p6', bags: 14, looseKg: 5),
   };
+
+  // Real, depletable batches backing the [stock] rollup above — see the
+  // reviewed batch/expiry architecture. One batch (b8) is deliberately expired
+  // to exercise the "cannot sell expired stock" rule out of the box.
+  final batches = [
+    Batch(
+        id: 'batch1',
+        branchId: 'br1',
+        productId: 'p1',
+        supplierId: 'sup3',
+        batchNo: 'GJ-2609',
+        expiry: _daysAhead(120),
+        unitCost: 1300,
+        bagsReceived: 40,
+        bagsAvailable: 38,
+        looseKgAvailable: 12,
+        bagsSold: 2,
+        createdAt: _daysAgo(10),
+        updatedAt: _daysAgo(1)),
+    Batch(
+        id: 'batch2',
+        branchId: 'br1',
+        productId: 'p2',
+        supplierId: 'sup1',
+        batchNo: 'PF-2201',
+        expiry: _daysAhead(60),
+        unitCost: 1180,
+        bagsReceived: 5,
+        bagsAvailable: 4,
+        looseKgAvailable: 22,
+        bagsSold: 1,
+        createdAt: _daysAgo(18),
+        updatedAt: _daysAgo(4)),
+    Batch(
+        id: 'batch3',
+        branchId: 'br1',
+        productId: 'p3',
+        supplierId: 'sup2',
+        batchNo: 'KG-0110',
+        expiry: _daysAhead(200),
+        unitCost: 1120,
+        bagsReceived: 21,
+        bagsAvailable: 21,
+        createdAt: _daysAgo(15),
+        updatedAt: _daysAgo(15)),
+    Batch(
+        id: 'batch4',
+        branchId: 'br1',
+        productId: 'p4',
+        supplierId: 'sup2',
+        batchNo: 'BS-0005',
+        expiry: _daysAhead(90),
+        unitCost: 1040,
+        bagsReceived: 2,
+        bagsAvailable: 2,
+        looseKgAvailable: 8,
+        createdAt: _daysAgo(12),
+        updatedAt: _daysAgo(12)),
+    Batch(
+        id: 'batch5',
+        branchId: 'br1',
+        productId: 'p5',
+        supplierId: 'sup4',
+        batchNo: 'CC-0002',
+        expiry: _daysAhead(45),
+        unitCost: 850,
+        bagsReceived: 1,
+        looseKgAvailable: 17,
+        createdAt: _daysAgo(14),
+        updatedAt: _daysAgo(2)),
+    Batch(
+        id: 'batch6',
+        branchId: 'br1',
+        productId: 'p6',
+        supplierId: 'sup4',
+        batchNo: 'LC-118',
+        expiry: _daysAhead(25), // near-expiry demo, per spec §10
+        unitCost: 930,
+        bagsReceived: 15,
+        bagsAvailable: 14,
+        looseKgAvailable: 5,
+        bagsSold: 1,
+        createdAt: _daysAgo(8),
+        updatedAt: _daysAgo(0)),
+    // A separate lot for the same product.
+    Batch(
+        id: 'batch7',
+        branchId: 'br1',
+        productId: 'p1',
+        supplierId: 'sup3',
+        batchNo: 'GJ-2610',
+        expiry: _daysAhead(10),
+        unitCost: 1310,
+        bagsReceived: 10,
+        bagsAvailable: 10,
+        createdAt: _daysAgo(3),
+        updatedAt: _daysAgo(3)),
+    // Already expired, still holding stock — exercises "expired batches must
+    // never silently remain available for sale" (spec §9) without needing a
+    // fresh Stock In first.
+    Batch(
+        id: 'batch8',
+        branchId: 'br1',
+        productId: 'p4',
+        supplierId: 'sup1',
+        batchNo: 'BS-0000',
+        expiry: _daysAgo(3),
+        unitCost: 1000,
+        bagsReceived: 1,
+        bagsAvailable: 1,
+        createdAt: _daysAgo(60),
+        updatedAt: _daysAgo(60)),
+  ];
 
   final customers = [
     Customer(
@@ -270,8 +424,11 @@ Snapshot buildSeed() {
 
   return Snapshot(
     brands: brands,
+    branches: branches,
+    suppliers: suppliers,
     products: products,
     stock: stock,
+    batches: batches,
     logs: logs,
     bills: bills,
     customers: customers,

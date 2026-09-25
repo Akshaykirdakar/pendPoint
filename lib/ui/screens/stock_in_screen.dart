@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../models/product.dart';
 import '../../state/app_state.dart';
 import '../../utils/formatters.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 
+/// Stock In — rebuilt per the reviewed branch/batch/expiry architecture
+/// (spec §1/§21). Selection order: Product (shop-wide) → Supplier
+/// (mandatory) → Batch No. → Quantity → Cost → Expiry → Add Stock.
 class StockInScreen extends StatefulWidget {
   final String? productId;
   const StockInScreen({this.productId, super.key});
@@ -14,100 +18,192 @@ class StockInScreen extends StatefulWidget {
   State<StockInScreen> createState() => _StockInScreenState();
 }
 
+enum _Unit { bags, loose }
+
 class _StockInScreenState extends State<StockInScreen> {
-  // Null until a product exists to default to — see build(), which also
-  // re-derives this if the products list changes underneath us (e.g. the
-  // selected product gets deleted from the catalogue elsewhere) so it never
-  // points at a stale/missing id.
+  String? _branchId;
   String? _pid;
-  final _bags = TextEditingController(text: '10');
+  String? _supplierId;
+  _Unit _unit = _Unit.bags;
+  final _qty = TextEditingController(text: '10');
   final _cost = TextEditingController();
   final _batch = TextEditingController();
-  final _supplier = TextEditingController();
   DateTime? _expiry;
+  bool _busy = false;
 
   @override
   void initState() {
     super.initState();
     final app = context.read<AppState>();
-    _pid = widget.productId ??
-        (app.products.isEmpty ? null : app.products.first.id);
+    _branchId = app.activeBranchId ?? app.branches.where((b) => b.active).firstOrNull?.id;
+    _pid = widget.productId;
   }
+
+  @override
+  void dispose() {
+    _qty.dispose();
+    _cost.dispose();
+    _batch.dispose();
+    super.dispose();
+  }
+
+  // Product availability is shop-wide in the single-branch app.
+  List<Product> _productsForBranch(AppState app) => app.products;
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
+    final c = context.c;
 
-    if (app.products.isEmpty) {
+    if (app.branches.isEmpty) {
       return PendScaffold(
         titleMr: 'साठा भरा',
         titleEn: 'Stock in',
-        body: const EmptyState(
-          '📦',
-          'No products in the catalogue yet · कॅटलॉगमध्ये उत्पादन नाही. Add a product first.',
-        ),
+        body: const EmptyState('🏬',
+            'दुकान सेट झाले नाही · Shop is not set up yet.'),
       );
     }
-    // The previously-selected product may no longer exist (deleted
-    // elsewhere while this screen was open) — fall back to the first one
-    // rather than keep a dangling id that stockIn() would silently no-op on.
-    if (_pid == null || !app.products.any((p) => p.id == _pid)) {
-      _pid = app.products.first.id;
-    }
+
+    final products = _productsForBranch(app);
+    // The previously-selected product may no longer belong to this branch
+    // (branch changed, or the product was reassigned elsewhere).
+    if (_pid != null && !products.any((p) => p.id == _pid)) _pid = null;
+    final product = _pid == null ? null : app.productOf(_pid!);
 
     return PendScaffold(
       titleMr: 'साठा भरा',
       titleEn: 'Stock in',
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(
-            'नवीन खरेदी नोंदवा · Record a purchase. Batch & expiry are optional but recommended for feed.',
-            style: TextStyle(color: context.c.ink2, fontSize: 13)),
+        Text('नवीन खरेदी नोंदवा · Record a purchase against a real batch.',
+            style: TextStyle(color: c.ink2, fontSize: 13)),
         const SizedBox(height: 14),
-        _label('उत्पादन · Product'),
+        _label('उत्पादन · Product *'),
         DropdownButtonFormField<String>(
-          initialValue: _pid,
-          items: [
-            for (final p in app.products)
-              DropdownMenuItem(
-                  value: p.id,
-                  child: Text('${p.nameMr} · ${p.name}',
-                      overflow: TextOverflow.ellipsis))
-          ],
-          onChanged: (v) => setState(() => _pid = v ?? _pid),
+              initialValue: _pid,
+              items: [
+                for (final p in products)
+                  DropdownMenuItem(
+                      value: p.id,
+                      child: Text('${p.nameMr} · ${p.name}',
+                          overflow: TextOverflow.ellipsis)),
+              ],
+              hint: Text(products.isEmpty
+                  ? 'उत्पादने नाहीत · No products yet'
+                  : 'निवडा · Select'),
+              onChanged: (v) => setState(() => _pid = v),
         ),
         const SizedBox(height: 12),
+        _label('पुरवठादार · Supplier *'),
+        DropdownButtonFormField<String>(
+          initialValue: app.suppliers.any((s) => s.id == _supplierId) ? _supplierId : null,
+          items: [
+            for (final s in app.suppliers.where((s) => s.active))
+              DropdownMenuItem(value: s.id, child: Text(s.name)),
+          ],
+          hint: const Text('निवडा · Select'),
+          onChanged: (v) => setState(() => _supplierId = v),
+        ),
+        if (app.suppliers.where((s) => s.active).isEmpty) ...[
+          const SizedBox(height: 4),
+          Text('कोणतेही पुरवठादार नाहीत · No suppliers yet — add one under More → Suppliers.',
+              style: TextStyle(fontSize: 11, color: c.muted)),
+        ],
+        const SizedBox(height: 12),
+        _field(
+            'बॅच क्र. · Batch no.${product?.batchTrackingEnabled ?? true ? ' *' : ' (optional)'}',
+            _batch),
         Row(children: [
-          Expanded(child: _field('गोणी · Bags in', _bags, number: true)),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                _label('प्रकार · Unit'),
+                SegmentedButton<_Unit>(
+                  segments: const [
+                    ButtonSegment(value: _Unit.bags, label: Text('गोणी · Bags')),
+                    ButtonSegment(value: _Unit.loose, label: Text('सुटे · Loose')),
+                  ],
+                  selected: {_unit},
+                  onSelectionChanged: (s) => setState(() => _unit = s.first),
+                ),
+              ])),
+        ]),
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(
+              child: _field(
+                  _unit == _Unit.bags ? 'गोणी संख्या · Bags qty' : 'सुटे वजन (kg) · Loose kg',
+                  _qty,
+                  number: true)),
           const SizedBox(width: 11),
           Expanded(
-              child: _field('खरेदी भाव/गोणी · Cost/bag', _cost,
-                  number: true, prefix: '₹')),
+              child: _field('खरेदी भाव/गोणी · Cost/bag', _cost, number: true, prefix: '₹')),
         ]),
-        Row(children: [
-          Expanded(child: _field('बॅच क्र. · Batch no.', _batch)),
-          const SizedBox(width: 11),
-          Expanded(child: _dateField(context)),
-        ]),
-        _field('पुरवठादार · Supplier', _supplier),
+        _dateField(context,
+            required: product?.expiryTrackingEnabled ?? true),
         const SizedBox(height: 8),
-        BigButton.brand('📦 साठा जोडा · Add to stock', onTap: () async {
-          final bags = int.tryParse(_bags.text) ?? 0;
-          if (bags <= 0) {
-            showToast(context, 'गोणी संख्या टाका · Enter bags');
-            return;
-          }
-          await app.stockIn(_pid!, bags,
-              cost: double.tryParse(_cost.text),
-              batch: _batch.text.isEmpty ? null : _batch.text,
-              expiry: _expiry,
-              supplier: _supplier.text.isEmpty ? null : _supplier.text);
-          if (context.mounted) {
-            showToast(context, '$bags गोणी जोडल्या · Stock added');
-            Navigator.pop(context);
-          }
-        }),
+        BigButton.brand(_busy ? 'जोडत आहे... · Adding...' : '📦 साठा जोडा · Add stock',
+            onTap: _busy ? null : () => _submit(app, product)),
       ]),
     );
+  }
+
+  Future<void> _submit(AppState app, Product? product) async {
+    if (_branchId == null) {
+      showToast(context, 'शाखा निवडा · Pick a branch');
+      return;
+    }
+    if (_pid == null || product == null) {
+      showToast(context, 'उत्पादन निवडा · Pick a product');
+      return;
+    }
+    if (_supplierId == null) {
+      showToast(context, 'पुरवठादार निवडा · Pick a supplier');
+      return;
+    }
+    final qty = double.tryParse(_qty.text) ?? 0;
+    if (qty <= 0) {
+      showToast(context, 'योग्य प्रमाण टाका · Enter a valid quantity');
+      return;
+    }
+    if (product.batchTrackingEnabled && _batch.text.trim().isEmpty) {
+      showToast(context, 'बॅच क्र. टाका · Enter a batch number');
+      return;
+    }
+    if (product.expiryTrackingEnabled && _expiry == null) {
+      showToast(context, 'एक्सपायरी निवडा · Pick an expiry date');
+      return;
+    }
+    final cost = _cost.text.trim().isEmpty ? null : double.tryParse(_cost.text);
+    if (_cost.text.trim().isNotEmpty && cost == null) {
+      showToast(context, 'योग्य किंमत टाका · Enter a valid cost');
+      return;
+    }
+
+    setState(() => _busy = true);
+    try {
+      await app.stockIn(
+        branchId: _branchId!,
+        productId: _pid!,
+        supplierId: _supplierId!,
+        batchNo: _batch.text.trim().isEmpty ? null : _batch.text.trim(),
+        expiry: _expiry,
+        cost: cost,
+        bags: _unit == _Unit.bags ? qty.round() : 0,
+        looseKg: _unit == _Unit.loose ? qty : 0,
+      );
+      if (mounted) {
+        showToast(context, 'साठा जोडला · Stock added');
+        Navigator.pop(context);
+      }
+    } catch (_) {
+      if (mounted) {
+        showToast(context, 'साठा जोडता आला नाही · Could not add stock');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Widget _label(String t) => Padding(
@@ -126,21 +222,23 @@ class _StockInScreenState extends State<StockInScreen> {
           _label(label),
           TextField(
               controller: ctrl,
-              keyboardType: number ? TextInputType.number : TextInputType.text,
+              keyboardType: number
+                  ? const TextInputType.numberWithOptions(decimal: true)
+                  : TextInputType.text,
               decoration: InputDecoration(prefixText: prefix)),
         ]),
       );
 
-  Widget _dateField(BuildContext context) => Padding(
+  Widget _dateField(BuildContext context, {required bool required}) => Padding(
         padding: const EdgeInsets.only(bottom: 12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _label('एक्सपायरी · Expiry'),
+          _label('एक्सपायरी · Expiry${required ? ' *' : ' (optional)'}'),
           InkWell(
             onTap: () async {
               final d = await showDatePicker(
                   context: context,
                   firstDate: DateTime.now(),
-                  lastDate: DateTime.now().add(const Duration(days: 1000)),
+                  lastDate: DateTime.now().add(const Duration(days: 3650)),
                   initialDate: DateTime.now().add(const Duration(days: 90)));
               if (d != null) setState(() => _expiry = d);
             },
