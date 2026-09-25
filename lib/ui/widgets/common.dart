@@ -6,6 +6,7 @@ import '../../models/app_settings.dart';
 import '../../models/bill.dart';
 import '../../models/enums.dart';
 import '../../models/product.dart';
+import '../../services/export_file_service.dart';
 import '../../state/app_state.dart';
 import '../../state/report_query.dart';
 import '../../utils/formatters.dart';
@@ -382,13 +383,20 @@ class EmptyState extends StatelessWidget {
       );
 }
 
-/// Bottom sheet offering PDF/Excel export — shared by Reports and Product
-/// History so the two screens don't grow slightly-different export UIs.
+/// Bottom sheet offering PDF/Excel export — shared by Reports, Payment Mix
+/// and Product History so those screens don't grow slightly-different export
+/// UIs. "Download" saves the file where the user chooses (Android Storage
+/// Access Framework / Windows save dialog / Web download — see
+/// [ExportFileService]); the small share icon next to it sends the same file
+/// straight to another app instead. [onShareSummary] is a distinct, older
+/// feature — a quick plain-text summary, not the file itself.
 void showExportSheet(
   BuildContext context, {
-  required Future<void> Function() onPdf,
-  required Future<void> Function() onExcel,
-  Future<void> Function()? onShare,
+  required Future<ExportResult> Function() onDownloadPdf,
+  required Future<ExportResult> Function() onDownloadExcel,
+  Future<ExportResult> Function()? onSharePdf,
+  Future<ExportResult> Function()? onShareExcel,
+  Future<void> Function()? onShareSummary,
 }) {
   showModalBottomSheet(
     context: context,
@@ -415,49 +423,163 @@ void showExportSheet(
                 style: baloo(
                     size: 18, weight: FontWeight.w700, color: context.c.ink)),
             const SizedBox(height: 14),
-            BigButton.primary('📄 PDF डाउनलोड करा · Download PDF', onTap: () {
-              Navigator.pop(ctx);
-              onPdf();
-            }),
-            const SizedBox(height: 4),
-            Padding(
-              padding: const EdgeInsets.only(left: 4),
-              child: Text(
-                  'या अहवालाची छपाईयोग्य PDF आवृत्ती तयार करते.\n'
+            _ExportFormatRow(
+              downloadLabel: '📄 PDF डाउनलोड करा · Download PDF',
+              helpText: 'या अहवालाची छपाईयोग्य PDF आवृत्ती तयार करते.\n'
                   'Create a print-ready PDF version of this report.',
-                  style: TextStyle(fontSize: 11, color: context.c.muted)),
+              kind: _Kind.primary,
+              onDownload: () {
+                Navigator.pop(ctx);
+                return onDownloadPdf();
+              },
+              onShare: onSharePdf == null
+                  ? null
+                  : () {
+                      Navigator.pop(ctx);
+                      return onSharePdf();
+                    },
             ),
             const SizedBox(height: 14),
-            BigButton.ghost('📊 Excel/CSV डाउनलोड करा · Download Excel', onTap: () {
-              Navigator.pop(ctx);
-              onExcel();
-            }),
-            const SizedBox(height: 4),
-            Padding(
-              padding: const EdgeInsets.only(left: 4),
-              child: Text(
+            _ExportFormatRow(
+              downloadLabel: '📊 Excel/CSV डाउनलोड करा · Download Excel',
+              helpText:
                   'स्प्रेडशीट-सुसंगत फाईल म्हणून अहवाल डेटा डाउनलोड करते.\n'
                   'Download report data as a spreadsheet-compatible file.',
-                  style: TextStyle(fontSize: 11, color: context.c.muted)),
-            ),
-            if (onShare != null) ...[
-              const SizedBox(height: 14),
-              BigButton.ghost('🔗 शेअर करा · Share', onTap: () {
+              kind: _Kind.ghost,
+              onDownload: () {
                 Navigator.pop(ctx);
-                onShare();
+                return onDownloadExcel();
+              },
+              onShare: onShareExcel == null
+                  ? null
+                  : () {
+                      Navigator.pop(ctx);
+                      return onShareExcel();
+                    },
+            ),
+            if (onShareSummary != null) ...[
+              const SizedBox(height: 14),
+              BigButton.ghost('🔗 सारांश शेअर करा · Share summary', onTap: () {
+                Navigator.pop(ctx);
+                onShareSummary();
               }),
               const SizedBox(height: 4),
               Padding(
                 padding: const EdgeInsets.only(left: 4),
                 child: Text(
-                    'हा अहवाल दुसऱ्या अ‍ॅप किंवा व्यक्तीसोबत शेअर करा.\n'
-                    'Share this report with another app or person.',
+                    'या अहवालाचा थोडक्यात मजकूर शेअर करा.\n'
+                    'Share a short text summary of this report.',
                     style: TextStyle(fontSize: 11, color: context.c.muted)),
               ),
             ],
           ]),
     ),
   );
+}
+
+/// One export-format row: a "Download" button plus an optional trailing
+/// "Share" icon for the same file. Reports the outcome via [showExportOutcome]
+/// so the caller's own BuildContext (still valid — the sheet already closed
+/// by the time the async save/share resolves) shows the right message.
+class _ExportFormatRow extends StatefulWidget {
+  final String downloadLabel;
+  final String helpText;
+  final _Kind kind;
+  final Future<ExportResult> Function() onDownload;
+  final Future<ExportResult> Function()? onShare;
+  const _ExportFormatRow({
+    required this.downloadLabel,
+    required this.helpText,
+    required this.kind,
+    required this.onDownload,
+    this.onShare,
+  });
+
+  @override
+  State<_ExportFormatRow> createState() => _ExportFormatRowState();
+}
+
+class _ExportFormatRowState extends State<_ExportFormatRow> {
+  bool _busy = false;
+
+  Future<void> _run(Future<ExportResult> Function() action) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final result = await action();
+    if (mounted) {
+      setState(() => _busy = false);
+      showExportOutcome(context, result);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final label = _busy ? 'तयार करत आहे... · Preparing...' : widget.downloadLabel;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Expanded(
+          child: widget.kind == _Kind.primary
+              ? BigButton.primary(label,
+                  onTap: _busy ? null : () => _run(widget.onDownload))
+              : BigButton.ghost(label,
+                  onTap: _busy ? null : () => _run(widget.onDownload)),
+        ),
+        if (widget.onShare != null) ...[
+          const SizedBox(width: 8),
+          Material(
+            color: context.c.surface2,
+            borderRadius: BorderRadius.circular(13),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(13),
+              onTap: _busy ? null : () => _run(widget.onShare!),
+              child: Container(
+                width: 52,
+                height: 52,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(13),
+                    border: Border.all(color: context.c.line)),
+                child: Icon(Icons.ios_share_rounded, color: context.c.ink),
+              ),
+            ),
+          ),
+        ],
+      ]),
+      const SizedBox(height: 4),
+      Padding(
+        padding: const EdgeInsets.only(left: 4),
+        child: Text(widget.helpText,
+            style: TextStyle(fontSize: 11, color: context.c.muted)),
+      ),
+    ]);
+  }
+}
+
+/// Shows the right bilingual feedback for a save/share [ExportResult] — never
+/// a success message unless the platform actually confirmed one, and no
+/// message at all when the user simply cancelled a save dialog.
+void showExportOutcome(BuildContext context, ExportResult result) {
+  switch (result.outcome) {
+    case ExportOutcome.saved:
+      final loc = result.location;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(
+          content: Text(loc == null
+              ? 'अहवाल जतन झाला · Report saved successfully'
+              : 'अहवाल जतन झाला · Report saved to:\n$loc'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+          backgroundColor: context.c.good,
+        ));
+      break;
+    case ExportOutcome.cancelled:
+      break;
+    case ExportOutcome.failed:
+      debugPrint('Export failed: ${result.error}');
+      showToast(context, 'अहवाल सेव्ह करता आला नाही · Could not save report');
+      break;
+  }
 }
 
 /// Small bilingual "what does this do" hint — a compact info icon that shows

@@ -63,11 +63,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     'निर्यात करण्यासाठी विक्री नाही · Nothing to export')
                 : () => showExportSheet(
                       context,
-                      onPdf: () => _export(() =>
-                          ReportExportService.shareReportPdf(app, result)),
-                      onExcel: () => _export(() =>
-                          ReportExportService.shareReportExcel(app, result)),
-                      onShare: () => _export(() =>
+                      onDownloadPdf: () =>
+                          ReportExportService.downloadReportPdf(app, result),
+                      onDownloadExcel: () =>
+                          ReportExportService.downloadReportExcel(app, result),
+                      onSharePdf: () =>
+                          ReportExportService.shareReportPdfFile(app, result),
+                      onShareExcel: () =>
+                          ReportExportService.shareReportExcelFile(app, result),
+                      onShareSummary: () => _export(() =>
                           ReportExportService.shareReportSummaryText(app, result)),
                     )),
       ],

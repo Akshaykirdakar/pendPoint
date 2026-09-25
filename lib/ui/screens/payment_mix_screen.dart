@@ -43,11 +43,15 @@ class PaymentMixScreen extends StatelessWidget {
                     'निर्यात करण्यासाठी विक्री नाही · Nothing to export')
                 : () => showExportSheet(
                       context,
-                      onPdf: () => _export(context, () =>
-                          ReportExportService.sharePaymentMixPdf(app, r)),
-                      onExcel: () => _export(context, () =>
-                          ReportExportService.sharePaymentMixExcel(app, r)),
-                      onShare: () => _export(context, () =>
+                      onDownloadPdf: () =>
+                          ReportExportService.downloadPaymentMixPdf(app, r),
+                      onDownloadExcel: () =>
+                          ReportExportService.downloadPaymentMixExcel(app, r),
+                      onSharePdf: () =>
+                          ReportExportService.sharePaymentMixPdfFile(app, r),
+                      onShareExcel: () =>
+                          ReportExportService.sharePaymentMixExcelFile(app, r),
+                      onShareSummary: () => _export(context, () =>
                           ReportExportService.sharePaymentMixSummaryText(app, r)),
                     )),
       ],

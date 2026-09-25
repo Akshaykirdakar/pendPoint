@@ -1,17 +1,25 @@
 // PDF + Excel export for the Reports module — respects whatever ReportFilter
 // produced the ReportResult/ProductHistoryResult it's given (reviewed spec
-// §12–§15). Shares the generated file via `share_plus`, which on the Web
-// triggers a browser download and on Android opens the native share sheet —
-// the same call works on both platforms, so there's no platform-specific
-// branch to keep in sync (reviewed spec §15).
+// §12–§15).
+//
+// Report generation here only ever produces bytes — identical on every
+// platform. Getting those bytes onto the user's device is [ExportFileService]'s
+// job, not this file's: "Download" goes through its `saveFile` (Android
+// Storage Access Framework / Windows save dialog / Web download, uniformly —
+// see that file's header for why this replaced share_plus for that action),
+// "Share" goes through its `shareFile` (the OS share sheet, with the Android
+// filename bug worked around). Every public export method here returns an
+// [ExportResult] so the caller can tell a cancelled save dialog apart from an
+// actual failure apart from success, and never show a fake success message.
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:share_plus/share_plus.dart';
+import 'package:share_plus/share_plus.dart' show SharePlus, ShareParams;
 
 import '../models/bill.dart';
 import '../models/brand.dart';
@@ -19,7 +27,12 @@ import '../models/enums.dart';
 import '../models/product.dart';
 import '../state/app_state.dart';
 import '../state/report_query.dart';
+import 'export_file_service.dart';
 import 'xlsx_writer.dart';
+
+const _pdfMime = 'application/pdf';
+const _xlsxMime =
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 final _dateFmt = DateFormat('dd MMM yyyy');
 final _dateTimeFmt = DateFormat('dd MMM yyyy, hh:mm a');
@@ -109,6 +122,33 @@ String _fileStem(String shopName, String reportKind) {
 class ReportExportService {
   const ReportExportService._();
 
+  /// Runs [build] (which may itself throw — font loading, malformed data)
+  /// and saves the resulting bytes, collapsing any failure from either step
+  /// into a single [ExportResult.failed] instead of letting it propagate as
+  /// an uncaught exception into the UI.
+  static Future<ExportResult> _download(
+      Future<Uint8List> Function() build, String fileName, String mimeType) async {
+    try {
+      final bytes = await build();
+      return await ExportFileService.saveFile(
+          bytes: bytes, fileName: fileName, mimeType: mimeType);
+    } catch (e) {
+      return ExportResult(ExportOutcome.failed, error: e);
+    }
+  }
+
+  /// Same as [_download], for the "Share" action.
+  static Future<ExportResult> _share(Future<Uint8List> Function() build,
+      String fileName, String mimeType, String subject) async {
+    try {
+      final bytes = await build();
+      return await ExportFileService.shareFile(
+          bytes: bytes, fileName: fileName, mimeType: mimeType, subject: subject);
+    } catch (e) {
+      return ExportResult(ExportOutcome.failed, error: e);
+    }
+  }
+
   // ---------------- Test hooks ----------------
 
   /// Exposes the PDF byte-builders for tests (see test/pdf_marathi_font_test.dart)
@@ -127,6 +167,11 @@ class ReportExportService {
   static Future<Uint8List> buildProductHistoryPdfBytes(
           AppState app, Product product, ProductHistoryResult h) =>
       _buildProductHistoryPdf(app, product, h);
+
+  @visibleForTesting
+  static Future<Uint8List> buildQrSheetPdfBytes(
+          AppState app, List<Product> products, {Brand? brand}) =>
+      _buildQrSheetPdf(app, products, brand);
 
   // ---------------- Plain-text share (spec §5 "Share") ----------------
 
@@ -173,30 +218,29 @@ class ReportExportService {
 
   // ---------------- Full report ----------------
 
-  static Future<void> shareReportPdf(AppState app, ReportResult r) async {
-    final bytes = await _buildReportPdf(app, r);
-    await SharePlus.instance.share(ShareParams(
-      files: [
-        XFile.fromData(bytes,
-            name: '${_fileStem(app.settings.shop, 'sales_report')}.pdf',
-            mimeType: 'application/pdf')
-      ],
-      subject: 'Sales Report · विक्री अहवाल',
-    ));
-  }
+  static Future<ExportResult> downloadReportPdf(AppState app, ReportResult r) =>
+      _download(() => _buildReportPdf(app, r),
+          '${_fileStem(app.settings.shop, 'sales_report')}.pdf', _pdfMime);
 
-  static Future<void> shareReportExcel(AppState app, ReportResult r) async {
-    final bytes = _buildReportXlsx(app, r);
-    await SharePlus.instance.share(ShareParams(
-      files: [
-        XFile.fromData(bytes,
-            name: '${_fileStem(app.settings.shop, 'sales_report')}.xlsx',
-            mimeType:
-                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      ],
-      subject: 'Sales Report · विक्री अहवाल',
-    ));
-  }
+  static Future<ExportResult> shareReportPdfFile(AppState app, ReportResult r) =>
+      _share(
+          () => _buildReportPdf(app, r),
+          '${_fileStem(app.settings.shop, 'sales_report')}.pdf',
+          _pdfMime,
+          'Sales Report · विक्री अहवाल');
+
+  static Future<ExportResult> downloadReportExcel(
+          AppState app, ReportResult r) =>
+      _download(() async => _buildReportXlsx(app, r),
+          '${_fileStem(app.settings.shop, 'sales_report')}.xlsx', _xlsxMime);
+
+  static Future<ExportResult> shareReportExcelFile(
+          AppState app, ReportResult r) =>
+      _share(
+          () async => _buildReportXlsx(app, r),
+          '${_fileStem(app.settings.shop, 'sales_report')}.xlsx',
+          _xlsxMime,
+          'Sales Report · विक्री अहवाल');
 
   static Future<Uint8List> _buildReportPdf(AppState app, ReportResult r) async {
     final brand =
@@ -346,59 +390,61 @@ class ReportExportService {
 
   // ---------------- Product history ----------------
 
-  static Future<void> shareProductHistoryPdf(
-      AppState app, Product product, ProductHistoryResult h) async {
-    final bytes = await _buildProductHistoryPdf(app, product, h);
-    await SharePlus.instance.share(ShareParams(
-      files: [
-        XFile.fromData(bytes,
-            name: '${_fileStem(app.settings.shop, 'product_history')}.pdf',
-            mimeType: 'application/pdf')
-      ],
-      subject: 'Product Sales History — ${product.name}',
-    ));
-  }
+  static Future<ExportResult> downloadProductHistoryPdf(
+          AppState app, Product product, ProductHistoryResult h) =>
+      _download(() => _buildProductHistoryPdf(app, product, h),
+          '${_fileStem(app.settings.shop, 'product_history')}.pdf', _pdfMime);
 
-  static Future<void> shareProductHistoryExcel(
-      AppState app, Product product, ProductHistoryResult h) async {
-    final bytes = _buildProductHistoryXlsx(app, product, h);
-    await SharePlus.instance.share(ShareParams(
-      files: [
-        XFile.fromData(bytes,
-            name: '${_fileStem(app.settings.shop, 'product_history')}.xlsx',
-            mimeType:
-                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      ],
-      subject: 'Product Sales History — ${product.name}',
-    ));
-  }
+  static Future<ExportResult> shareProductHistoryPdfFile(
+          AppState app, Product product, ProductHistoryResult h) =>
+      _share(
+          () => _buildProductHistoryPdf(app, product, h),
+          '${_fileStem(app.settings.shop, 'product_history')}.pdf',
+          _pdfMime,
+          'Product Sales History — ${product.name}');
+
+  static Future<ExportResult> downloadProductHistoryExcel(
+          AppState app, Product product, ProductHistoryResult h) =>
+      _download(
+          () async => _buildProductHistoryXlsx(app, product, h),
+          '${_fileStem(app.settings.shop, 'product_history')}.xlsx',
+          _xlsxMime);
+
+  static Future<ExportResult> shareProductHistoryExcelFile(
+          AppState app, Product product, ProductHistoryResult h) =>
+      _share(
+          () async => _buildProductHistoryXlsx(app, product, h),
+          '${_fileStem(app.settings.shop, 'product_history')}.xlsx',
+          _xlsxMime,
+          'Product Sales History — ${product.name}');
 
   // ---------------- Payment mix ----------------
 
-  static Future<void> sharePaymentMixPdf(AppState app, ReportResult r) async {
-    final bytes = await _buildPaymentMixPdf(app, r);
-    await SharePlus.instance.share(ShareParams(
-      files: [
-        XFile.fromData(bytes,
-            name: '${_fileStem(app.settings.shop, 'payment_mix')}.pdf',
-            mimeType: 'application/pdf')
-      ],
-      subject: 'Payment Mix · पेमेंट विभागणी',
-    ));
-  }
+  static Future<ExportResult> downloadPaymentMixPdf(
+          AppState app, ReportResult r) =>
+      _download(() => _buildPaymentMixPdf(app, r),
+          '${_fileStem(app.settings.shop, 'payment_mix')}.pdf', _pdfMime);
 
-  static Future<void> sharePaymentMixExcel(AppState app, ReportResult r) async {
-    final bytes = _buildPaymentMixXlsx(app, r);
-    await SharePlus.instance.share(ShareParams(
-      files: [
-        XFile.fromData(bytes,
-            name: '${_fileStem(app.settings.shop, 'payment_mix')}.xlsx',
-            mimeType:
-                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      ],
-      subject: 'Payment Mix · पेमेंट विभागणी',
-    ));
-  }
+  static Future<ExportResult> sharePaymentMixPdfFile(
+          AppState app, ReportResult r) =>
+      _share(
+          () => _buildPaymentMixPdf(app, r),
+          '${_fileStem(app.settings.shop, 'payment_mix')}.pdf',
+          _pdfMime,
+          'Payment Mix · पेमेंट विभागणी');
+
+  static Future<ExportResult> downloadPaymentMixExcel(
+          AppState app, ReportResult r) =>
+      _download(() async => _buildPaymentMixXlsx(app, r),
+          '${_fileStem(app.settings.shop, 'payment_mix')}.xlsx', _xlsxMime);
+
+  static Future<ExportResult> sharePaymentMixExcelFile(
+          AppState app, ReportResult r) =>
+      _share(
+          () async => _buildPaymentMixXlsx(app, r),
+          '${_fileStem(app.settings.shop, 'payment_mix')}.xlsx',
+          _xlsxMime,
+          'Payment Mix · पेमेंट विभागणी');
 
   static Future<Uint8List> _buildPaymentMixPdf(
       AppState app, ReportResult r) async {
@@ -623,4 +669,134 @@ class ReportExportService {
     ]);
     return buildXlsx([summary, history]);
   }
+
+  // ---------------- QR sheet ----------------
+
+  static Future<ExportResult> downloadQrSheetPdf(
+          AppState app, List<Product> products, {Brand? brand}) =>
+      _download(() => _buildQrSheetPdf(app, products, brand),
+          '${_fileStem(app.settings.shop, 'qr_sheet')}.pdf', _pdfMime);
+
+  static Future<ExportResult> shareQrSheetPdf(
+          AppState app, List<Product> products, {Brand? brand}) =>
+      _share(
+          () => _buildQrSheetPdf(app, products, brand),
+          '${_fileStem(app.settings.shop, 'qr_sheet')}.pdf',
+          _pdfMime,
+          'QR Sheet · QR शीट');
+
+  /// Best-effort fetch of a product photo for the printed sheet — a slow or
+  /// failed network image must never block or break the export, it just
+  /// prints without that one photo (mirrors [PhotoSwatch]'s errorBuilder
+  /// fallback on-screen).
+  static Future<Uint8List?> _fetchPhoto(String? url) async {
+    if (url == null || url.trim().isEmpty) return null;
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasScheme) return null;
+    try {
+      final res = await http.get(uri).timeout(const Duration(seconds: 5));
+      if (res.statusCode == 200) return res.bodyBytes;
+    } catch (_) {
+      // Ignored — see method doc.
+    }
+    return null;
+  }
+
+  static Future<Uint8List> _buildQrSheetPdf(
+      AppState app, List<Product> products, Brand? brand) async {
+    final fonts = await _PdfFonts.load();
+    final photos = <String, Uint8List?>{};
+    for (final p in products) {
+      photos[p.id] = await _fetchPhoto(p.photoUrl);
+    }
+    final doc = pw.Document(
+        theme: pw.ThemeData.withFont(base: fonts.regular, bold: fonts.bold));
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      build: (ctx) => [
+        pw.Text(app.settings.shop,
+            style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+        pw.Text('QR कॅटलॉग शीट · QR Catalogue Sheet',
+            style: const pw.TextStyle(fontSize: 13)),
+        pw.Text(
+            'ब्रँड · Brand: ${brand == null ? 'सर्व · All' : '${brand.nameMr} · ${brand.name}'}',
+            style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+        pw.Text('Generated: ${_dateTimeFmt.format(DateTime.now())}',
+            style: pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+        pw.SizedBox(height: 12),
+        if (products.isEmpty)
+          pw.Text('कोणतीही उत्पादने नाहीत · No products to print.')
+        else
+          pw.Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final p in products)
+                _qrTile(p, photos[p.id], app.brandOf(p.brandId)),
+            ],
+          ),
+      ],
+    ));
+    return doc.save();
+  }
+
+  static pw.Widget _qrTile(Product p, Uint8List? photo, Brand? brand) =>
+      pw.Container(
+        width: 150,
+        padding: const pw.EdgeInsets.all(8),
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(color: PdfColors.grey400),
+          borderRadius: pw.BorderRadius.circular(6),
+        ),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                if (photo != null)
+                  pw.Container(
+                    width: 46,
+                    height: 46,
+                    child: pw.ClipRRect(
+                      horizontalRadius: 6,
+                      verticalRadius: 6,
+                      child: pw.Image(pw.MemoryImage(photo),
+                          fit: pw.BoxFit.cover),
+                    ),
+                  ),
+                pw.BarcodeWidget(
+                  barcode: pw.Barcode.qrCode(),
+                  data: p.qr,
+                  width: 60,
+                  height: 60,
+                  drawText: false,
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 6),
+            pw.Text(p.nameMr.isEmpty ? p.name : p.nameMr,
+                maxLines: 1,
+                overflow: pw.TextOverflow.clip,
+                style: pw.TextStyle(
+                    fontSize: 10, fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.red700)),
+            pw.Text(p.name,
+                maxLines: 1,
+                overflow: pw.TextOverflow.clip,
+                style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+            if (brand != null)
+              pw.Text(brand.name,
+                  maxLines: 1,
+                  overflow: pw.TextOverflow.clip,
+                  style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
+            pw.SizedBox(height: 4),
+            pw.Text(
+                'पॅक · Pack: ${p.bagWeightKg} kg   •   ${p.category ?? 'सर्वसाधारण · General'}',
+                maxLines: 1,
+                overflow: pw.TextOverflow.clip,
+                style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey700)),
+          ],
+        ),
+      );
 }

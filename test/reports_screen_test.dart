@@ -154,7 +154,7 @@ void main() {
     expect(
         find.textContaining('Create a print-ready PDF version of this report'),
         findsOneWidget);
-    expect(find.textContaining('🔗 शेअर करा'), findsOneWidget);
+    expect(find.textContaining('🔗 सारांश शेअर करा'), findsOneWidget);
   });
 
   testWidgets('Help tooltip is present on the date-range field', (tester) async {

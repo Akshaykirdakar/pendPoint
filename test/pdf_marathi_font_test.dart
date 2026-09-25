@@ -91,4 +91,23 @@ void main() {
     expect(bytes, isNotEmpty);
     expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
   });
+
+  test(
+      'QR sheet PDF generates without font/glyph errors, with no photoUrl set',
+      () async {
+    // Seeded products have no photoUrl — this also exercises the "no photo"
+    // path (no network call attempted) alongside Marathi product names.
+    final bytes =
+        await ReportExportService.buildQrSheetPdfBytes(app, app.products);
+
+    expect(bytes, isNotEmpty);
+    expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+  });
+
+  test('QR sheet PDF generates for an empty product list', () async {
+    final bytes = await ReportExportService.buildQrSheetPdfBytes(app, const []);
+
+    expect(bytes, isNotEmpty);
+    expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+  });
 }

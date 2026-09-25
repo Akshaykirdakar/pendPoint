@@ -164,7 +164,7 @@ class _ScanScreenState extends State<ScanScreen> {
           crossAxisCount: 2,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          childAspectRatio: 1.35,
+          childAspectRatio: 1.02,
           mainAxisSpacing: 11,
           crossAxisSpacing: 11,
           children: [
@@ -185,9 +185,11 @@ class _ScanScreenState extends State<ScanScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
+                      PhotoSwatch(product, size: 30),
+                      const SizedBox(height: 4),
                       QrImageView(
                         data: product.qr,
-                        size: 60,
+                        size: 52,
                         padding: EdgeInsets.zero,
                       ),
                       const SizedBox(height: 6),
@@ -234,19 +236,32 @@ class _PendingConfirmCard extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          const Icon(Icons.check_circle, size: 20),
-          const SizedBox(width: 8),
+          PhotoSwatch(product, size: 52),
+          const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              '${product.nameMr} सापडले · Found',
-              style: baloo(size: 15, weight: FontWeight.w700, color: c.ink),
-              overflow: TextOverflow.ellipsis,
-            ),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(children: [
+                    const Icon(Icons.check_circle, size: 18),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        '${product.nameMr} सापडले · Found',
+                        style: baloo(
+                            size: 15, weight: FontWeight.w700, color: c.ink),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ]),
+                  const SizedBox(height: 3),
+                  Text(
+                      '${money(product.fullBagPrice)} · ${money(product.perKgPrice)}/kg',
+                      style: TextStyle(color: c.ink2, fontSize: 12.5)),
+                ]),
           ),
         ]),
-        const SizedBox(height: 3),
-        Text('${money(product.fullBagPrice)} · ${money(product.perKgPrice)}/kg',
-            style: TextStyle(color: c.ink2, fontSize: 12.5)),
         const SizedBox(height: 10),
         Row(children: [
           Expanded(

@@ -45,12 +45,18 @@ class ProductHistoryScreen extends StatelessWidget {
         BarAction('एक्सपोर्ट', icon: Icons.ios_share_rounded,
             onTap: () => showExportSheet(
                   context,
-                  onPdf: () => _export(context, () =>
-                      ReportExportService.shareProductHistoryPdf(
-                          app, product, history)),
-                  onExcel: () => _export(context, () =>
-                      ReportExportService.shareProductHistoryExcel(
-                          app, product, history)),
+                  onDownloadPdf: () =>
+                      ReportExportService.downloadProductHistoryPdf(
+                          app, product, history),
+                  onDownloadExcel: () =>
+                      ReportExportService.downloadProductHistoryExcel(
+                          app, product, history),
+                  onSharePdf: () =>
+                      ReportExportService.shareProductHistoryPdfFile(
+                          app, product, history),
+                  onShareExcel: () =>
+                      ReportExportService.shareProductHistoryExcelFile(
+                          app, product, history),
                 )),
       ],
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -159,15 +165,5 @@ class ProductHistoryScreen extends StatelessWidget {
           ]),
       ]),
     );
-  }
-
-  Future<void> _export(BuildContext context, Future<void> Function() run) async {
-    try {
-      await run();
-    } catch (_) {
-      if (context.mounted) {
-        showToast(context, 'एक्सपोर्ट अयशस्वी · Export failed');
-      }
-    }
   }
 }
