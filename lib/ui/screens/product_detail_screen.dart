@@ -8,6 +8,7 @@ import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 import 'cart_screen.dart';
+import '../../utils/lang.dart';
 
 class ProductDetailScreen extends StatelessWidget {
   final String productId;
@@ -87,13 +88,13 @@ class ProductDetailScreen extends StatelessWidget {
           ),
         const SizedBox(height: 6),
         ProductName(p, size: 22, showEnglish: false),
-        Text('${p.name} · ${p.bagWeightKg} kg bag',
+        Text('${p.name} · ${p.bagWeightKg} kg ${L('गोणी', 'bag')}',
             style: TextStyle(color: c.ink2)),
         const SizedBox(height: 14),
         Row(children: [
-          priceCard('पूर्ण गोणी · Bag', money(p.fullBagPrice)),
+          priceCard(tr('पूर्ण गोणी · Bag'), money(p.fullBagPrice)),
           const SizedBox(width: 11),
-          priceCard('प्रति किलो · Per kg', money(p.perKgPrice))
+          priceCard(tr('प्रति किलो · Per kg'), money(p.perKgPrice))
         ]),
         const SizedBox(height: 12),
         Container(
@@ -102,28 +103,30 @@ class ProductDetailScreen extends StatelessWidget {
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              Text('सध्याचा साठा · In stock',
-                  style: TextStyle(fontWeight: FontWeight.w600, color: c.ink2)),
-              const Spacer(),
+              Expanded(
+                child: Text(tr('सध्याचा साठा · In stock'),
+                    style:
+                        TextStyle(fontWeight: FontWeight.w600, color: c.ink2)),
+              ),
               StatusPill(app.levelOf(productId)),
             ]),
             const SizedBox(height: 10),
             Row(children: [
-              stockNum('${s.bags}', 'पूर्ण गोणी bags'),
-              const SizedBox(width: 20),
-              stockNum(kg(s.looseKg), 'सुटे loose'),
-              const Spacer(),
-              stockNum(kg(app.effKg(productId)), 'एकूण total', color: c.brand),
+              Expanded(child: stockNum('${s.bags}', tr('पूर्ण गोणी · bags'))),
+              Expanded(child: stockNum(kg(s.looseKg), tr('सुटे · loose'))),
+              Expanded(
+                  child: stockNum(kg(app.effKg(productId)), tr('एकूण · total'),
+                      color: c.brand)),
             ]),
           ]),
         ),
-        SectionHeader('विक्री प्रकार · Sale type'),
+        SectionHeader(tr('विक्री प्रकार · Sale type')),
         BigButton.primary(
-            '🛍️ पूर्ण गोणी · Add full bag — ${money(p.fullBagPrice)}',
+            tr('🛍️ पूर्ण गोणी · Add full bag — ${money(p.fullBagPrice)}'),
             onTap: () => _addSheet(context, app, productId, SaleType.bag)),
         const SizedBox(height: 10),
         BigButton.ghost(
-            '⚖️ किलोने · Sell by weight — ${money(p.perKgPrice)}/kg',
+            tr('⚖️ किलोने · Sell by weight — ${money(p.perKgPrice)}/kg'),
             onTap: () => _addSheet(context, app, productId, SaleType.kg)),
       ]),
     );
@@ -171,8 +174,8 @@ class ProductDetailScreen extends StatelessWidget {
                               borderRadius: BorderRadius.circular(9)))),
                   Text(
                       isBag
-                          ? 'किती गोणी? · How many bags?'
-                          : 'किती किलो? · How many kg?',
+                          ? tr('किती गोणी? · How many bags?')
+                          : tr('किती किलो? · How many kg?'),
                       style: baloo(
                           size: 18,
                           weight: FontWeight.w700,
@@ -194,14 +197,14 @@ class ProductDetailScreen extends StatelessWidget {
                     )),
                     _stepBtn(context, Icons.add, () => bump(1)),
                     const SizedBox(width: 10),
-                    Text(isBag ? 'गोणी' : 'किलो',
+                    Text(isBag ? L('गोणी', 'bags') : L('किलो', 'kg'),
                         style: TextStyle(
                             fontWeight: FontWeight.w600,
                             color: context.c.ink2)),
                   ]),
                   const SizedBox(height: 16),
                   BigButton.primary(
-                      'बिलात जोडा · Add to bill (${money(rate * (double.tryParse(controller.text) ?? qty))})',
+                      tr('बिलात जोडा · Add to bill (${money(rate * (double.tryParse(controller.text) ?? qty))})'),
                       onTap: () {
                     final q = double.tryParse(controller.text) ?? qty;
                     app.addToCart(pid, type, q);

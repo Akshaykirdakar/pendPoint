@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'data/firestore_repository.dart';
@@ -11,6 +12,7 @@ import 'state/app_state.dart';
 import 'ui/screens/sign_in_screen.dart';
 import 'ui/root_shell.dart';
 import 'utils/theme.dart';
+import 'utils/lang.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -61,9 +63,25 @@ class PendApp extends StatelessWidget {
           return MaterialApp(
             title: 'पेंड Point',
             debugShowCheckedModeBanner: false,
-            theme: buildTheme(Brightness.light),
-            darkTheme: buildTheme(Brightness.dark),
+            theme: buildTheme(Brightness.light, app.settings.colorTheme),
+            darkTheme: buildTheme(Brightness.dark, app.settings.colorTheme),
             themeMode: mode,
+            // Settings → Font size: scales every text through Flutter's
+            // text scaler (on top of the phone's own accessibility size),
+            // so layouts reflow — nothing is zoomed with a transform.
+            builder: (context, child) => AppTextScale(
+                fontSize: app.settings.fontSize, child: child!),
+            // Flutter's own texts (date picker, OK/Cancel, back tooltip)
+            // follow the shop's language: Marathi unless English-only.
+            locale: app.settings.lang == AppLang.en
+                ? const Locale('en')
+                : const Locale('mr'),
+            supportedLocales: const [Locale('mr'), Locale('en')],
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
             home: requireAuthentication
                 ? const _AuthenticationGate()
                 : (app.loading ? const _Splash() : const RootShell()),
@@ -95,8 +113,8 @@ class _AuthenticationGateState extends State<_AuthenticationGate> {
             // If Firebase Auth's own stream never emits (e.g. a hung
             // persistence/session lookup on web), this is where it sits
             // forever — surface *that* instead of an unlabeled splash.
-            return const _Splash(
-                label: 'साइन-इन तपासत आहे... · Checking sign-in...');
+            return _Splash(
+                label: tr('साइन-इन तपासत आहे... · Checking sign-in...'));
           }
           if (snapshot.hasError) {
             return _DataLoadFailure(error: snapshot.error!);
@@ -130,8 +148,8 @@ class _AuthenticationGateState extends State<_AuthenticationGate> {
           return Consumer<AppState>(
             builder: (context, app, _) {
               if (app.loading) {
-                return const _Splash(
-                    label: 'दुकानाचा डेटा आणत आहे... · Loading shop data...');
+                return _Splash(
+                    label: tr('दुकानाचा डेटा आणत आहे... · Loading shop data...'));
               }
               if (app.bootstrapError != null) {
                 return _DataLoadFailure(error: app.bootstrapError!);
@@ -160,11 +178,12 @@ class _DataLoadFailure extends StatelessWidget {
               children: [
                 const Icon(Icons.cloud_off_rounded, size: 52),
                 const SizedBox(height: 16),
-                Text('Could not load shop data',
+                Text(L('दुकानाचा डेटा आला नाही', 'Could not load shop data'),
                     style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 8),
-                const Text(
-                  'Check the Firebase staff account and Firestore rules, then sign in again.',
+                Text(
+                  L('इंटरनेट व कर्मचारी खाते तपासा, मग पुन्हा लॉगिन करा.',
+                      'Check the Firebase staff account and Firestore rules, then sign in again.'),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 12),
@@ -176,12 +195,12 @@ class _DataLoadFailure extends StatelessWidget {
                 const SizedBox(height: 16),
                 FilledButton(
                   onPressed: () => context.read<AppState>().bootstrap(),
-                  child: const Text('Retry'),
+                  child: Text(L('पुन्हा प्रयत्न', 'Retry')),
                 ),
                 const SizedBox(height: 8),
                 OutlinedButton(
                   onPressed: () => FirebaseAuth.instance.signOut(),
-                  child: const Text('Sign out'),
+                  child: Text(L('लॉगआउट', 'Sign out')),
                 ),
               ],
             ),
@@ -207,22 +226,23 @@ class _NoDataYet extends StatelessWidget {
               children: [
                 const Text('📦', style: TextStyle(fontSize: 48)),
                 const SizedBox(height: 16),
-                Text('अजून डेटा नाही · No data yet',
+                Text(tr('अजून डेटा नाही · No data yet'),
                     style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 8),
-                const Text(
-                  'Run the Firestore seeder (tools/seed_firestore.mjs) to add the catalogue, then retry.',
+                Text(
+                  L('कॅटलॉग जोडण्यासाठी Firestore seeder चालवा, मग पुन्हा प्रयत्न करा.',
+                      'Run the Firestore seeder (tools/seed_firestore.mjs) to add the catalogue, then retry.'),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
                 FilledButton(
                   onPressed: () => context.read<AppState>().bootstrap(),
-                  child: const Text('Retry'),
+                  child: Text(L('पुन्हा प्रयत्न', 'Retry')),
                 ),
                 const SizedBox(height: 8),
                 OutlinedButton(
                   onPressed: () => FirebaseAuth.instance.signOut(),
-                  child: const Text('Sign out'),
+                  child: Text(L('लॉगआउट', 'Sign out')),
                 ),
               ],
             ),

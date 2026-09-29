@@ -7,6 +7,7 @@ import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 import 'branch_edit_screen.dart';
+import '../../utils/lang.dart';
 
 /// Branch Master list — "More" → Branch Master (spec §22). Each row opens
 /// [BranchEditScreen]; "+ Add" creates a new one.
@@ -21,13 +22,13 @@ class BranchesScreen extends StatelessWidget {
       titleMr: 'शाखा',
       titleEn: 'Branches',
       actions: [
-        BarAction('＋ शाखा · Add', icon: Icons.add_rounded,
+        BarAction(tr('＋ शाखा · Add'), icon: Icons.add_rounded,
             onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const BranchEditScreen()))),
       ],
       body: app.branches.isEmpty
-          ? const EmptyState(
-              '🏬', 'अजून कोणतीही शाखा नाही · No branches yet')
+          ? EmptyState(
+              '🏬', tr('अजून कोणतीही शाखा नाही · No branches yet'))
           : CardList([
               for (final b in app.branches)
                 InkWell(
@@ -54,13 +55,13 @@ class BranchesScreen extends StatelessWidget {
                       if (b.id == app.activeBranchId)
                         Padding(
                           padding: const EdgeInsets.only(right: 8),
-                          child: StatusPill(StockLevel.ok, label: 'सक्रिय · Active'),
+                          child: StatusPill(StockLevel.ok, label: tr('सक्रिय · Active')),
                         )
                       else if (!b.active)
                         Padding(
                           padding: const EdgeInsets.only(right: 8),
                           child:
-                              StatusPill(StockLevel.out, label: 'निष्क्रिय · Inactive'),
+                              StatusPill(StockLevel.out, label: tr('निष्क्रिय · Inactive')),
                         ),
                       Icon(Icons.chevron_right, color: c.muted),
                     ]),

@@ -4,18 +4,27 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart' show SharePlus, ShareParams;
 
+import '../../models/bill.dart';
 import '../../models/enums.dart';
 import '../../services/thermal_printer_service.dart';
+import '../../services/whatsapp_service.dart';
 import '../../state/app_state.dart';
 import '../../utils/formatters.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
+import '../widgets/tiles.dart';
+import 'sales_entry_screen.dart';
+import '../../utils/lang.dart';
 
 class BillScreen extends StatefulWidget {
   final String billId;
-  const BillScreen({required this.billId, super.key});
+
+  /// Opened straight after saving — shows the "Bill saved" confirmation.
+  final bool justSaved;
+  const BillScreen({required this.billId, this.justSaved = false, super.key});
 
   @override
   State<BillScreen> createState() => _BillScreenState();
@@ -29,8 +38,22 @@ class _BillScreenState extends State<BillScreen> {
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final c = context.c;
-    final bill = app.bills.firstWhere((b) => b.id == widget.billId);
+    final bill = app.bills.where((b) => b.id == widget.billId).firstOrNull;
+    if (bill == null) {
+      return PendScaffold(
+          titleMr: 'बिल',
+          titleEn: 'Bill',
+          body: EmptyState('🔍', tr('बिल सापडले नाही · Bill not found')));
+    }
     final voided = bill.status == BillStatus.voided;
+    final replacement = bill.replacedByBillId == null
+        ? null
+        : app.bills.where((b) => b.id == bill.replacedByBillId).firstOrNull;
+    final party = bill.customerId == null ? null : app.partyOf(bill.customerId!);
+    final mobile = party?.mobile ?? '';
+    final hasWhatsAppNumber = WhatsAppService.phoneForWhatsApp(mobile) != null;
+    final editBlock = app.whyBillNotEditable(bill);
+    final voidBlock = app.whyBillLocked(bill);
 
     TextStyle mono = const TextStyle(fontFamily: 'monospace', fontSize: 12.5);
     Widget li(String l, String r, {bool bold = false}) => Padding(
@@ -53,33 +76,157 @@ class _BillScreenState extends State<BillScreen> {
             maxLines: 1,
             overflow: TextOverflow.clip,
             style: TextStyle(color: c.muted, fontSize: 10)));
+    Widget fact(String k, String v, {bool big = false}) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 3),
+          child: Row(children: [
+            SizedBox(
+                width: 118,
+                child: Text(k, style: TextStyle(color: c.ink2, fontSize: 13))),
+            Expanded(
+                child: Text(v,
+                    textAlign: TextAlign.right,
+                    style: big
+                        ? baloo(size: 20, weight: FontWeight.w800, color: c.brand)
+                        : TextStyle(
+                            fontWeight: FontWeight.w800, color: c.ink))),
+          ]),
+        );
+
+    final (icon, color, headline, sub) = switch ((voided, replacement != null)) {
+      (true, true) => (
+          Icons.edit_note_rounded,
+          c.muted,
+          tr('बिल #${bill.billNumber} दुरुस्त केले · Bill #${bill.billNumber} corrected'),
+          tr('नवीन आवृत्ती ${replacement!.revision} · Replaced by revision ${replacement.revision}')
+        ),
+      (true, false) => (
+          Icons.close,
+          c.critical,
+          tr('बिल #${bill.billNumber} रद्द · Bill #${bill.billNumber} void'),
+          tr('❌ रद्द केले · VOID')
+        ),
+      _ => (
+          Icons.check,
+          c.good,
+          widget.justSaved
+              ? tr('बिल सेव्ह झाले · Bill saved successfully')
+              : tr('बिल #${bill.billNumber} · Bill #${bill.billNumber}'),
+          bill.isRevised
+              ? '${tr('दुरुस्त बिल · Corrected bill')} · ${money(bill.total)}'
+              : money(bill.total)
+        ),
+    };
 
     return PendScaffold(
-      titleMr: 'बिल तयार',
-      titleEn: 'Bill ready',
-      body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      titleMr: L('बिल #${bill.billNumber}', 'Bill #${bill.billNumber}'),
+      titleEn: bill.isRevised ? 'Bill · Rev ${bill.revision}' : 'Bill',
+      body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Center(
           child: Column(children: [
             Container(
                 width: 64,
                 height: 64,
                 decoration: BoxDecoration(
-                    color:
-                        (voided ? c.critical : c.good).withValues(alpha: 0.16),
+                    color: color.withValues(alpha: 0.16),
                     shape: BoxShape.circle),
-                child: Icon(voided ? Icons.close : Icons.check,
-                    color: voided ? c.critical : c.good, size: 32)),
+                child: Icon(icon, color: color, size: 32)),
             const SizedBox(height: 10),
-            Text('बिल #${bill.billNumber} ${voided ? 'रद्द' : 'तयार'}',
-                style: baloo(size: 19, weight: FontWeight.w800, color: c.ink)),
-            Text(
-                voided
-                    ? '❌ रद्द केले · VOID'
-                    : 'Sale complete · ${money(bill.total)}',
-                style: TextStyle(color: c.muted)),
+            Text(headline,
+                key: const ValueKey('bill-headline'),
+                textAlign: TextAlign.center,
+                style: baloo(size: 20, weight: FontWeight.w800, color: c.ink)),
+            Text(sub,
+                textAlign: TextAlign.center, style: TextStyle(color: c.muted)),
           ]),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 14),
+        // Key facts first — what the counter needs to read back to the party.
+        Container(
+          decoration: cardDecoration(context),
+          padding: const EdgeInsets.all(14),
+          child: Column(children: [
+            fact(tr('बिल क्र. · Bill no.'),
+                '#${bill.billNumber}${bill.isRevised ? ' (Rev ${bill.revision})' : ''}'),
+            fact(tr('पार्टी · Party'),
+                bill.customerName.isEmpty ? tr('रोख ग्राहक · Walk-in') : bill.customerName),
+            fact(tr('दिनांक · Date'), dateTimeShort(bill.at)),
+            fact(tr('एकूण · Total'), money(bill.total), big: true),
+          ]),
+        ),
+        if (replacement != null) ...[
+          const SizedBox(height: 10),
+          BigButton.brand(tr('➡️ दुरुस्त बिल उघडा · Open corrected bill'),
+              onTap: () => Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(
+                      builder: (_) => BillScreen(billId: replacement.id)))),
+        ],
+        const SizedBox(height: 12),
+        TileGrid(columns: 3, gap: 10, [
+          BigTile(
+              key: const ValueKey('bill-print'),
+              icon: Icons.print_rounded,
+              mr: _printing ? 'छापत आहे…' : 'छापा',
+              en: 'Print',
+              color: c.ink2,
+              onTap: _printing ? null : () => _print(context, app)),
+          BigTile(
+              key: const ValueKey('bill-whatsapp'),
+              icon: Icons.chat_rounded,
+              mr: 'WhatsApp',
+              en: 'Send',
+              color: const Color(0xFF25D366), // WhatsApp green
+              onTap: () => _sendWhatsApp(context, app, bill, mobile)),
+          BigTile(
+              key: const ValueKey('bill-share'),
+              icon: Icons.share_rounded,
+              mr: 'शेअर',
+              en: 'Share',
+              color: c.s1,
+              onTap: () => SharePlus.instance
+                  .share(ShareParams(text: _message(app, bill)))),
+        ]),
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+              hasWhatsAppNumber
+                  ? L('${party!.name} (${party.mobile}) साठी WhatsApp मध्ये बिल तयार होईल — "पाठवा" दाबा',
+                      'Opens WhatsApp for ${party.name} (${party.mobile}) with the bill ready — tap Send')
+                  : L('पार्टीचा मोबाइल नाही — WhatsApp मध्ये चॅट निवडा',
+                      'No party mobile — pick the chat in WhatsApp'),
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 11.5, color: c.muted)),
+        ),
+        if (!voided) ...[
+          SectionHeader(tr('दुरुस्ती · Corrections')),
+          TileGrid(columns: 2, gap: 10, [
+            BigTile(
+                key: const ValueKey('bill-edit'),
+                icon: Icons.edit_rounded,
+                mr: 'बिल दुरुस्त',
+                en: 'Edit bill',
+                color: c.s1,
+                onTap: editBlock != null
+                    ? null
+                    : () => _startEdit(context, app, bill.id)),
+            BigTile(
+                key: const ValueKey('bill-void'),
+                icon: Icons.cancel_rounded,
+                mr: 'बिल रद्द',
+                en: 'Void bill',
+                color: c.critical,
+                onTap: voidBlock != null
+                    ? null
+                    : () => _confirmVoid(context, app, bill.id, bill.billNumber)),
+          ]),
+          if (editBlock != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(tr(editBlock),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: c.muted)),
+            ),
+        ],
+        SectionHeader(tr('बिल पहा · View bill')),
         RepaintBoundary(
           key: _receiptKey,
           child: Container(
@@ -99,15 +246,15 @@ class _BillScreenState extends State<BillScreen> {
                               color: c.ink))),
                   Center(
                       child: Text(
-                          'बिल #${bill.billNumber} · ${dateTimeShort(bill.at)}',
+                          '${L('बिल', 'Bill')} #${bill.billNumber}${bill.isRevised ? ' R${bill.revision}' : ''} · ${dateTimeShort(bill.at)}',
                           style: mono.copyWith(color: c.ink2))),
                   if (bill.customerName.isNotEmpty)
                     Center(
-                        child: Text('ग्राहक: ${bill.customerName}',
+                        child: Text('${L('ग्राहक', 'Customer')}: ${bill.customerName}',
                             style: mono.copyWith(color: c.ink2))),
                   dashes(),
                   for (final it in bill.items) ...[
-                    li('${app.productOf(it.productId)?.nameMr ?? ''} ${it.saleType == SaleType.bag ? '${it.qty.round()}×गोणी Bag' : '${kg(it.qty)} सुटे Loose'}',
+                    li('${app.productOf(it.productId)?.nameMr ?? ''} ${it.saleType == SaleType.bag ? '${it.qty.round()} × ${L('गोणी', 'bag')}' : '${kg(it.qty)} ${L('सुटे', 'loose')}'}',
                         money(it.lineTotal)),
                     if (app.brandOf(app.productOf(it.productId)?.brandId ?? '') != null)
                       Padding(
@@ -118,72 +265,95 @@ class _BillScreenState extends State<BillScreen> {
                       ),
                   ],
                   dashes(),
-                  li('उप-बेरीज', money(bill.subtotal)),
+                  // bill.subtotal is already after line discounts; show the
+                  // catalogue-rate subtotal so Subtotal − Discount = Total.
+                  li(L('उप-बेरीज', 'Subtotal'), money(bill.subtotal + bill.discountTotal)),
                   if (bill.discountTotal > 0)
-                    li('सूट', '–${money(bill.discountTotal)}'),
-                  li('एकूण TOTAL', money(bill.total), bold: true),
+                    li(L('सूट', 'Discount'), '–${money(bill.discountTotal)}'),
+                  li(L('एकूण', 'TOTAL'), money(bill.total), bold: true),
                   dashes(),
                   for (final p in bill.payments)
-                    li(p.mode.name.toUpperCase(), money(p.amount)),
+                    li(payModeLabel(p.mode), money(p.amount)),
                   if (bill.creditAmount > 0) ...[
                     dashes(),
-                    li('भरले · Paid', money(bill.total - bill.creditAmount)),
-                    li('बाकी · Outstanding', money(bill.creditAmount), bold: true),
+                    li(tr('भरले · Paid'), money(bill.total - bill.creditAmount)),
+                    li(tr('बाकी · Outstanding'), money(bill.creditAmount), bold: true),
                   ],
                   const SizedBox(height: 8),
                   Center(
-                      child: Text('धन्यवाद! · Thank you 🙏',
+                      child: Text(tr('धन्यवाद! · Thank you 🙏'),
                           style: mono.copyWith(color: c.muted))),
                 ]),
           ),
         ),
-        const SizedBox(height: 12),
-        Container(
-          decoration: BoxDecoration(
-              color: c.warning.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: c.warning.withValues(alpha: 0.4))),
-          padding: const EdgeInsets.all(11),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('🖨️ '),
-            Expanded(
-                child: Text(
-                    'बिल प्रतिमा म्हणून छापले जाते — त्यामुळे मराठी नावे थर्मल प्रिंटरवर बरोबर येतात.\nPrinted as an image so Devanagari renders on the thermal printer.',
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: c.ink,
-                        fontWeight: FontWeight.w600))),
-          ]),
-        ),
-        const SizedBox(height: 12),
-        Row(children: [
-          Expanded(
-              child: BigButton.brand(
-                  _printing ? 'छापत आहे... · Printing…' : '🖨️ छापा · Print',
-                  onTap: _printing ? null : () => _print(context, app))),
-          const SizedBox(width: 11),
-          Expanded(
-              child: BigButton.ghost('📲 WhatsApp',
-                  onTap: () =>
-                      showToast(context, 'WhatsApp वर पाठवले · Shared'))),
-        ]),
-        const SizedBox(height: 10),
-        if (!voided)
-          BigButton.danger('बिल रद्द करा · Void bill',
-              onTap: () =>
-                  _confirmVoid(context, app, bill.id, bill.billNumber)),
-        const SizedBox(height: 10),
-        BigButton.ghost('मुख्य पानावर · Done',
+        const SizedBox(height: 8),
+        Text(
+            tr('🖨️ बिल प्रतिमा म्हणून छापले जाते — मराठी नावे थर्मल प्रिंटरवर बरोबर येतात · Printed as an image so Devanagari renders on the thermal printer.'),
+            style: TextStyle(fontSize: 11.5, color: c.muted)),
+        const SizedBox(height: 14),
+        BigButton.ghost(tr('मुख्य पानावर · Done'),
             onTap: () => Navigator.of(context).popUntil((r) => r.isFirst)),
       ]),
     );
+  }
+
+  String _message(AppState app, Bill bill) => WhatsAppService.billMessage(
+        shopName: app.settings.shop,
+        bill: bill,
+        productLabel: (id) {
+          final p = app.productOf(id);
+          if (p == null) return id;
+          final b = app.brandOf(p.brandId);
+          return '${p.nameMr} ${p.name}${b == null ? '' : ' (${b.name})'}';
+        },
+      );
+
+  Future<void> _sendWhatsApp(
+      BuildContext context, AppState app, Bill bill, String mobile) async {
+    final opened = await WhatsAppService.open(
+        mobile: mobile.isEmpty ? null : mobile, message: _message(app, bill));
+    if (!opened && context.mounted) {
+      showToast(context,
+          'WhatsApp उघडता आले नाही · Could not open WhatsApp — use Share instead');
+    }
+  }
+
+  /// Loads the bill into the sales grid for correction.
+  Future<void> _startEdit(BuildContext context, AppState app, String id) async {
+    if (app.cart.isNotEmpty && app.editingBillId != id) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(tr('सध्याचे बिल रिकामे होईल · Clear current cart?')),
+          content: Text(
+              tr('चालू बिलातील उत्पादने काढून हे बिल दुरुस्तीसाठी उघडेल · The items in the current cart will be cleared to edit this bill.')),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text(tr('नाही · No'))),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(tr('हो · Continue'))),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
+    final error = app.beginEditBill(id);
+    if (!context.mounted) return;
+    if (error != null) {
+      showToast(context, error);
+      return;
+    }
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const SalesEntryScreen()));
   }
 
   Future<void> _print(BuildContext context, AppState app) async {
     final address = app.settings.printerAddress;
     if (address == null) {
       showToast(context,
-          'सेटिंग्जमध्ये प्रिंटर जोडा · Pair a printer in Settings first');
+          tr('सेटिंग्जमध्ये प्रिंटर जोडा · Pair a printer in Settings first'));
       return;
     }
     setState(() => _printing = true);
@@ -192,7 +362,7 @@ class _BillScreenState extends State<BillScreen> {
       if (bytes == null) {
         if (context.mounted) {
           showToast(context,
-              'बिलाची प्रतिमा तयार करता आली नाही · Could not render receipt');
+              tr('बिलाची प्रतिमा तयार करता आली नाही · Could not render receipt'));
         }
         return;
       }
@@ -201,7 +371,7 @@ class _BillScreenState extends State<BillScreen> {
       if (!connected) {
         if (context.mounted) {
           showToast(context,
-              'प्रिंटरशी जोडता आले नाही · Could not connect to printer');
+              tr('प्रिंटरशी जोडता आले नाही · Could not connect to printer'));
         }
         return;
       }
@@ -210,8 +380,8 @@ class _BillScreenState extends State<BillScreen> {
         showToast(
             context,
             sent
-                ? 'बिल प्रिंटरला पाठवले · Sent to printer'
-                : 'छपाई अयशस्वी · Print failed');
+                ? tr('बिल प्रिंटरला पाठवले · Sent to printer')
+                : tr('छपाई अयशस्वी · Print failed'));
       }
     } finally {
       if (mounted) setState(() => _printing = false);
@@ -235,23 +405,26 @@ class _BillScreenState extends State<BillScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: context.c.surface,
-        title: Text('बिल रद्द करायचे?',
+        title: Text(L('बिल रद्द करायचे?', 'Void this bill?'),
             style:
                 baloo(size: 17, weight: FontWeight.w700, color: context.c.ink)),
         content: Text(
-            'बिल #$number रद्द केल्यास साठा परत जमा होईल.\nVoid bill #$number? Stock will be restored.',
+            tr('बिल #$number रद्द केल्यास साठा परत जमा होईल.\nVoid bill #$number? Stock will be restored.'),
             style: TextStyle(color: context.c.ink2)),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('नाही')),
+              onPressed: () => Navigator.pop(ctx), child: Text(L('नाही', 'No'))),
           FilledButton(
               style:
                   FilledButton.styleFrom(backgroundColor: context.c.critical),
               onPressed: () async {
-                await app.voidBill(id);
+                final error = await app.voidBill(id);
                 if (ctx.mounted) Navigator.pop(ctx);
+                if (context.mounted) {
+                  showToast(context, error ?? tr('बिल रद्द झाले · Bill voided'));
+                }
               },
-              child: const Text('रद्द करा')),
+              child: Text(L('रद्द करा', 'Void'))),
         ],
       ),
     );

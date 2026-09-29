@@ -33,8 +33,9 @@ class LedgerEntry {
       );
 }
 
-/// A khata customer. [outstanding] is maintained transactionally alongside the
-/// ledger so the balance is never recomputed on the client.
+/// A khata customer — the *sales* side of the Party Master (see
+/// `models/party.dart`). [outstanding] is maintained transactionally
+/// alongside the ledger so the balance is never recomputed on the client.
 class Customer {
   final String id;
   String name;
@@ -42,11 +43,18 @@ class Customer {
   double outstanding;
   final List<LedgerEntry> ledger;
 
+  /// Party code / number the counter types to find this party quickly.
+  /// Empty on customers created before the Party Master existed.
+  String code;
+  String address;
+
   Customer({
     required this.id,
     required this.name,
     this.mobile = '',
     this.outstanding = 0,
+    this.code = '',
+    this.address = '',
     List<LedgerEntry>? ledger,
   }) : ledger = ledger ?? [];
 
@@ -54,6 +62,8 @@ class Customer {
         'name': name,
         'mobile': mobile,
         'outstandingBalance': outstanding,
+        'code': code,
+        'address': address,
       };
 
   factory Customer.fromMap(
@@ -63,6 +73,8 @@ class Customer {
         name: (m['name'] ?? '') as String,
         mobile: (m['mobile'] ?? '') as String,
         outstanding: (m['outstandingBalance'] ?? 0).toDouble(),
+        code: (m['code'] ?? '') as String,
+        address: (m['address'] ?? '') as String,
         ledger: ledger,
       );
 }

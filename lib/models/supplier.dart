@@ -1,4 +1,5 @@
-/// A purchase/stock-in supplier — a proper master entity (never a free-text
+/// A purchase/stock-in supplier — the *purchase* side of the Party Master
+/// (see `models/party.dart`) — a proper master entity (never a free-text
 /// field on a purchase row). Batches reference a supplier by [id]; a supplier
 /// referenced by any batch/purchase can only be deactivated, never
 /// hard-deleted (see [AppState.deleteSupplier]).
@@ -15,9 +16,14 @@ class Supplier {
   final String notes;
   final DateTime createdAt;
 
+  /// Party code / number (shared with the matching [Customer] when the party
+  /// is both a buyer and a seller). Empty on suppliers created earlier.
+  final String code;
+
   const Supplier({
     required this.id,
     required this.name,
+    this.code = '',
     this.mobile = '',
     this.altMobile = '',
     this.address = '',
@@ -31,6 +37,7 @@ class Supplier {
 
   Supplier copyWith({
     String? name,
+    String? code,
     String? mobile,
     String? altMobile,
     String? address,
@@ -43,6 +50,7 @@ class Supplier {
       Supplier(
         id: id,
         name: name ?? this.name,
+        code: code ?? this.code,
         mobile: mobile ?? this.mobile,
         altMobile: altMobile ?? this.altMobile,
         address: address ?? this.address,
@@ -64,6 +72,7 @@ class Supplier {
         'openingBalance': openingBalance,
         'active': active,
         'notes': notes,
+        'code': code,
         'createdAt': createdAt.toIso8601String(),
       };
 
@@ -78,7 +87,7 @@ class Supplier {
         openingBalance: (m['openingBalance'] ?? 0).toDouble(),
         active: (m['active'] ?? true) as bool,
         notes: (m['notes'] ?? '') as String,
-        createdAt:
-            DateTime.tryParse(m['createdAt'] ?? '') ?? DateTime.now(),
+        code: (m['code'] ?? '') as String,
+        createdAt: DateTime.tryParse(m['createdAt'] ?? '') ?? DateTime.now(),
       );
 }

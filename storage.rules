@@ -16,5 +16,27 @@ service firebase.storage {
         && request.resource.contentType.matches('image/(jpeg|png|webp)');
       allow delete: if isAdmin();
     }
+    // Optional brand logos/photos — owner-managed master data, like
+    // product images (brands/{id} in Firestore is admin-write too).
+    match /brands/{brandId}/{fileName} {
+      allow read: if request.auth != null;
+      allow create, update: if isAdmin()
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+      allow delete: if isAdmin();
+    }
+    // Photos of suppliers' paper bills, attached to a purchase for
+    // reference. Staff record purchases (see firestore.rules), so any
+    // signed-in staff member may add one; a new file is written per upload
+    // (never overwritten) so older purchase revisions keep their photo.
+    // Only the owner may delete.
+    match /purchase-bills/{purchaseId}/{fileName} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
   }
 }

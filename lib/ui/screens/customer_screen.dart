@@ -7,6 +7,7 @@ import '../../utils/formatters.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
+import '../../utils/lang.dart';
 
 class CustomerScreen extends StatelessWidget {
   final String customerId;
@@ -44,19 +45,19 @@ class CustomerScreen extends StatelessWidget {
                     color: cu.outstanding > 0 ? c.serious : c.good)),
             Text(
                 cu.outstanding > 0
-                    ? 'येणे बाकी · Outstanding'
-                    : 'खाते चुकते · Settled',
+                    ? tr('येणे बाकी · Outstanding')
+                    : tr('खाते चुकते · Settled'),
                 style: TextStyle(fontSize: 12, color: c.muted)),
             if (cu.outstanding > 0) ...[
               const SizedBox(height: 12),
               SizedBox(
                   width: 220,
-                  child: BigButton.brand('💵 पैसे जमा करा · Record payment',
+                  child: BigButton.brand(tr('💵 पैसे जमा करा · Record payment'),
                       onTap: () => _repay(context, app, customerId))),
             ],
           ]),
         ),
-        SectionHeader('व्यवहार · Ledger'),
+        SectionHeader(tr('व्यवहार · Ledger')),
         CardList([
           for (final e in led)
             Padding(
@@ -80,13 +81,13 @@ class CustomerScreen extends StatelessWidget {
                         children: [
                       Text(
                           e.isRepayment
-                              ? 'जमा · Payment'
-                              : 'उधार · Credit sale',
+                              ? tr('जमा · Payment')
+                              : tr('उधार · Credit sale'),
                           style: baloo(
                               size: 13.5,
                               weight: FontWeight.w700,
                               color: c.ink)),
-                      Text('${dateTimeShort(e.at)}${' · ${e.note}'}',
+                      Text([dateTimeShort(e.at), if (e.note != null && e.note!.isNotEmpty) noteLabel(e.note!)].join(' · '),
                           style: TextStyle(fontSize: 11.5, color: c.ink2)),
                     ])),
                 Text('${e.isRepayment ? '–' : '+'}${money(e.amount)}',
@@ -110,7 +111,7 @@ class CustomerScreen extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: context.c.surface,
-        title: Text('पैसे जमा · Record payment',
+        title: Text(tr('पैसे जमा · Record payment'),
             style:
                 baloo(size: 17, weight: FontWeight.w700, color: context.c.ink)),
         content: StatefulBuilder(
@@ -122,14 +123,15 @@ class CustomerScreen extends StatelessWidget {
                   TextField(
                       controller: amtCtrl,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                          labelText: 'रक्कम · Amount', prefixText: '₹')),
+                      decoration: InputDecoration(
+                          labelText: tr('रक्कम · Amount'), prefixText: '₹')),
                   const SizedBox(height: 10),
                   DropdownButtonFormField<PayMode>(
+                      isExpanded: true,
                       initialValue: mode,
-                      items: const [
+                      items: [
                         DropdownMenuItem(
-                            value: PayMode.cash, child: Text('रोख Cash')),
+                            value: PayMode.cash, child: Text(tr('रोख · Cash'))),
                         DropdownMenuItem(value: PayMode.upi, child: Text('UPI'))
                       ],
                       onChanged: (m) => setSt(() => mode = m ?? mode)),
@@ -146,7 +148,7 @@ class CustomerScreen extends StatelessWidget {
                   Navigator.pop(ctx);
                 }
                 if (context.mounted) {
-                  showToast(context, '₹${amt.round()} जमा झाले · Recorded');
+                  showToast(context, tr('₹${amt.round()} जमा झाले · Recorded'));
                 }
               },
               child: const Text('जमा')),

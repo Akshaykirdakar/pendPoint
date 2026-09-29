@@ -11,6 +11,7 @@ import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 import 'product_detail_screen.dart';
+import '../../utils/lang.dart';
 
 /// Scans a product's QR code and opens its product detail page.
 ///
@@ -54,10 +55,11 @@ class _ScanScreenState extends State<ScanScreen> {
         .firstOrNull;
     if (code == null || code.isEmpty) return;
 
-    final product = app.products.where((item) => item.qr == code).firstOrNull;
+    final product = app.productForQr(code);
     if (product == null) {
       setState(() {
-        _message = 'This QR code is not in the product catalogue.';
+        _message = L('हा QR कोड कॅटलॉगमध्ये नाही.',
+            'This QR code is not in the product catalogue.');
         _pending = null;
       });
       return;
@@ -122,13 +124,13 @@ class _ScanScreenState extends State<ScanScreen> {
                   right: 8,
                   child: Row(children: [
                     IconButton.filledTonal(
-                      tooltip: 'Toggle torch',
+                      tooltip: L('टॉर्च', 'Toggle torch'),
                       onPressed: _controller.toggleTorch,
                       icon: const Icon(Icons.flashlight_on_outlined),
                     ),
                     const SizedBox(width: 8),
                     IconButton.filledTonal(
-                      tooltip: 'Switch camera',
+                      tooltip: L('कॅमेरा बदला', 'Switch camera'),
                       onPressed: _controller.switchCamera,
                       icon: const Icon(Icons.cameraswitch_outlined),
                     ),
@@ -145,7 +147,7 @@ class _ScanScreenState extends State<ScanScreen> {
               product: _pending!, onConfirm: _confirm, onRescan: _rescan)
         else ...[
           Text(
-            'कॅमेरा QR कडे धरा, मग कन्फर्म करा · Point the camera at a product QR, then confirm.',
+            tr('कॅमेरा QR कडे धरा, मग कन्फर्म करा · Point the camera at a product QR, then confirm.'),
             textAlign: TextAlign.center,
             style: TextStyle(color: c.ink2, fontSize: 13),
           ),
@@ -156,7 +158,7 @@ class _ScanScreenState extends State<ScanScreen> {
         ],
         const SizedBox(height: 14),
         Text(
-          'Manual fallback',
+          L('हाताने निवडा', 'Manual fallback'),
           style: TextStyle(color: c.muted, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 8),
@@ -248,7 +250,7 @@ class _PendingConfirmCard extends StatelessWidget {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        '${product.nameMr} सापडले · Found',
+                        tr('${product.nameMr} सापडले · Found'),
                         style: baloo(
                             size: 15, weight: FontWeight.w700, color: c.ink),
                         overflow: TextOverflow.ellipsis,
@@ -265,9 +267,9 @@ class _PendingConfirmCard extends StatelessWidget {
         const SizedBox(height: 10),
         Row(children: [
           Expanded(
-              child: BigButton.ghost('↺ पुन्हा · Rescan', onTap: onRescan)),
+              child: BigButton.ghost(tr('↺ पुन्हा · Rescan'), onTap: onRescan)),
           const SizedBox(width: 10),
-          Expanded(child: BigButton.brand('उघडा · Open', onTap: onConfirm)),
+          Expanded(child: BigButton.brand(tr('उघडा · Open'), onTap: onConfirm)),
         ]),
       ]),
     );

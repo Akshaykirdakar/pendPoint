@@ -77,6 +77,10 @@ class Payment {
       PayModeX.fromId(m['mode'] as String?), (m['amount'] ?? 0).toDouble());
 }
 
+/// A sales bill. Bills are never overwritten or deleted: correcting one
+/// ("Edit bill") voids it and writes a new revision that keeps the same
+/// [billNumber] — [revision] counts up, [originalBillId] points at the first
+/// version, and the superseded version carries [replacedByBillId].
 class Bill {
   final String id;
   final int billNumber;
@@ -92,6 +96,11 @@ class Bill {
   final String? staffId;
   final String? branchId; // null on bills created before branches existed
 
+  final int revision; // 0 = as first saved; 1, 2… = corrected versions
+  final String? originalBillId; // first version of an edited bill
+  final String? replacedByBillId; // set on a version superseded by an edit
+  final DateTime? editedAt;
+
   const Bill({
     required this.id,
     required this.billNumber,
@@ -106,13 +115,20 @@ class Bill {
     required this.at,
     this.staffId,
     this.branchId,
+    this.revision = 0,
+    this.originalBillId,
+    this.replacedByBillId,
+    this.editedAt,
   });
+
+  bool get isRevised => revision > 0;
+  bool get wasReplaced => replacedByBillId != null;
 
   double get creditAmount => payments
       .where((p) => p.mode == PayMode.credit)
       .fold(0.0, (s, p) => s + p.amount);
 
-  Bill copyWith({BillStatus? status}) => Bill(
+  Bill copyWith({BillStatus? status, String? replacedByBillId}) => Bill(
         id: id,
         billNumber: billNumber,
         customerId: customerId,
@@ -126,6 +142,10 @@ class Bill {
         at: at,
         staffId: staffId,
         branchId: branchId,
+        revision: revision,
+        originalBillId: originalBillId,
+        replacedByBillId: replacedByBillId ?? this.replacedByBillId,
+        editedAt: editedAt,
       );
 
   Map<String, dynamic> toMap() => {
@@ -140,6 +160,10 @@ class Bill {
         'createdAt': at.toIso8601String(),
         'createdBy': staffId,
         'branchId': branchId,
+        'revision': revision,
+        'originalBillId': originalBillId,
+        'replacedByBillId': replacedByBillId,
+        'editedAt': editedAt?.toIso8601String(),
         // billItems are a subcollection in Firestore — see FirestoreRepository.
       };
 
@@ -161,5 +185,11 @@ class Bill {
         at: DateTime.tryParse(m['createdAt'] ?? '') ?? DateTime.now(),
         staffId: m['createdBy'] as String?,
         branchId: m['branchId'] as String?,
+        revision: (m['revision'] ?? 0) as int,
+        originalBillId: m['originalBillId'] as String?,
+        replacedByBillId: m['replacedByBillId'] as String?,
+        editedAt: m['editedAt'] != null
+            ? DateTime.tryParse(m['editedAt'] as String)
+            : null,
       );
 }

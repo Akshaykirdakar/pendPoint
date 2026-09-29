@@ -7,6 +7,7 @@ import '../../utils/formatters.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
+import '../../utils/lang.dart';
 
 /// Batch & Expiry Report (spec §10–§12/§15/§16-K) — one reusable screen
 /// covering Batch-wise Stock, Expiry/Near-Expiry/Expired, and every
@@ -86,7 +87,7 @@ class _BatchReportScreenState extends State<BatchReportScreen> {
         _filters(context, app),
         const SizedBox(height: 12),
         if (rows.isEmpty)
-          const EmptyState('📭', 'कोणतीही बॅच सापडली नाही · No batches found')
+          EmptyState('📭', tr('कोणतीही बॅच सापडली नाही · No batches found'))
         else
           CardList([
             for (final b in rows) _batchRow(context, app, b),
@@ -103,9 +104,9 @@ class _BatchReportScreenState extends State<BatchReportScreen> {
         DropdownButtonFormField<String?>(
             initialValue: _supplierId,
             isExpanded: true,
-            decoration: const InputDecoration(labelText: 'पुरवठादार · Supplier'),
+            decoration: InputDecoration(labelText: tr('पुरवठादार · Supplier')),
             items: [
-              const DropdownMenuItem(value: null, child: Text('सर्व · All')),
+              DropdownMenuItem(value: null, child: Text(tr('सर्व · All'))),
               for (final s in app.suppliers)
                 DropdownMenuItem(value: s.id, child: Text(s.name, overflow: TextOverflow.ellipsis)),
             ],
@@ -115,9 +116,9 @@ class _BatchReportScreenState extends State<BatchReportScreen> {
         DropdownButtonFormField<String?>(
           initialValue: _productId,
           isExpanded: true,
-          decoration: const InputDecoration(labelText: 'उत्पाद · Product'),
+          decoration: InputDecoration(labelText: tr('उत्पाद · Product')),
           items: [
-            const DropdownMenuItem(value: null, child: Text('सर्व · All')),
+            DropdownMenuItem(value: null, child: Text(tr('सर्व · All'))),
             for (final p in app.products)
               DropdownMenuItem(value: p.id, child: Text(p.nameMr, overflow: TextOverflow.ellipsis)),
           ],
@@ -128,10 +129,10 @@ class _BatchReportScreenState extends State<BatchReportScreen> {
           for (final s in _ExpiryStatus.values)
             ChoiceChip(
               label: Text(switch (s) {
-                _ExpiryStatus.all => 'सर्व · All',
-                _ExpiryStatus.active => 'सक्रिय · Active',
-                _ExpiryStatus.nearExpiry => 'नजीक एक्सपायरी · Near Expiry',
-                _ExpiryStatus.expired => 'एक्सपायर · Expired',
+                _ExpiryStatus.all => tr('सर्व · All'),
+                _ExpiryStatus.active => tr('सक्रिय · Active'),
+                _ExpiryStatus.nearExpiry => tr('नजीक एक्सपायरी · Near Expiry'),
+                _ExpiryStatus.expired => tr('एक्सपायर · Expired'),
               }),
               selected: _status == s,
               onSelected: (_) => setState(() => _status = s),
@@ -139,14 +140,15 @@ class _BatchReportScreenState extends State<BatchReportScreen> {
         ]),
         const SizedBox(height: 10),
         DropdownButtonFormField<_SortBy>(
+          isExpanded: true,
           initialValue: _sort,
-          decoration: const InputDecoration(labelText: 'क्रमवारी · Sort by'),
-          items: const [
-            DropdownMenuItem(value: _SortBy.expiry, child: Text('एक्सपायरी · Expiry date')),
-            DropdownMenuItem(value: _SortBy.daysLeft, child: Text('दिवस बाकी · Days left')),
-            DropdownMenuItem(value: _SortBy.qty, child: Text('प्रमाण · Quantity')),
-            DropdownMenuItem(value: _SortBy.product, child: Text('उत्पाद · Product')),
-            DropdownMenuItem(value: _SortBy.supplier, child: Text('पुरवठादार · Supplier')),
+          decoration: InputDecoration(labelText: tr('क्रमवारी · Sort by')),
+          items: [
+            DropdownMenuItem(value: _SortBy.expiry, child: Text(tr('एक्सपायरी · Expiry date'))),
+            DropdownMenuItem(value: _SortBy.daysLeft, child: Text(tr('दिवस बाकी · Days left'))),
+            DropdownMenuItem(value: _SortBy.qty, child: Text(tr('प्रमाण · Quantity'))),
+            DropdownMenuItem(value: _SortBy.product, child: Text(tr('उत्पाद · Product'))),
+            DropdownMenuItem(value: _SortBy.supplier, child: Text(tr('पुरवठादार · Supplier'))),
           ],
           onChanged: (v) => setState(() => _sort = v ?? _sort),
         ),
@@ -165,13 +167,13 @@ class _BatchReportScreenState extends State<BatchReportScreen> {
     late String statusLabel;
     if (b.isExpired) {
       statusColor = c.critical;
-      statusLabel = 'एक्सपायर · Expired';
+      statusLabel = tr('एक्सपायर · Expired');
     } else if (days != null && days <= _nearExpiryDays && qty > 0) {
       statusColor = c.warning;
-      statusLabel = '$days दिवस बाकी · $days days left';
+      statusLabel = tr('$days दिवस बाकी · $days days left');
     } else {
       statusColor = c.good;
-      statusLabel = 'सक्रिय · Active';
+      statusLabel = tr('सक्रिय · Active');
     }
 
     return Padding(
@@ -187,7 +189,7 @@ class _BatchReportScreenState extends State<BatchReportScreen> {
               Text('${b.batchNo}'
                   '${supplier != null ? ' · ${supplier.name}' : ''}',
                   style: TextStyle(fontSize: 11.5, color: c.ink2)),
-              Text('${b.bagsAvailable} गोणी · ${kg(b.looseKgAvailable)}',
+              Text('🛍️ ${b.bagsAvailable} · ${kg(b.looseKgAvailable)}',
                   style: TextStyle(fontSize: 11.5, color: c.muted)),
             ])),
         Column(crossAxisAlignment: CrossAxisAlignment.end, children: [

@@ -9,6 +9,7 @@ import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 import 'product_detail_screen.dart';
+import '../../utils/lang.dart';
 
 /// Inventory alerts — batch-aware per the reviewed spec §27: expired batches,
 /// critical/near-expiry batches (real remaining quantity, real expiry, real
@@ -32,7 +33,7 @@ class AlertsScreen extends StatelessWidget {
       titleMr: 'सूचना',
       titleEn: 'Alerts',
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        SectionHeader('⛔ एक्सपायर झालेला साठा · Expired stock'),
+        SectionHeader(tr('⛔ एक्सपायर झालेला साठा · Expired stock')),
         if (expired.isEmpty)
           Container(
               decoration: cardDecoration(context),
@@ -40,15 +41,15 @@ class AlertsScreen extends StatelessWidget {
         else
           CardList([for (final e in expired) _batchRow(context, app, e, c.critical)]),
 
-        SectionHeader('🔴 गंभीर एक्सपायरी · Critical expiry (≤${app.settings.criticalExpiryDays}d)'),
+        SectionHeader(tr('🔴 गंभीर एक्सपायरी · Critical expiry (≤${app.settings.criticalExpiryDays}d)')),
         if (critical.isEmpty)
           Container(
               decoration: cardDecoration(context),
-              child: const EmptyState('👍', 'Nothing critical'))
+              child: const EmptyState('👍', 'काहीही तातडीचे नाही · Nothing critical'))
         else
           CardList([for (final e in critical) _batchRow(context, app, e, c.critical)]),
 
-        SectionHeader('🟡 नजीक एक्सपायरी · Near expiry (≤${app.settings.nearExpiryDays}d)'),
+        SectionHeader(tr('🟡 नजीक एक्सपायरी · Near expiry (≤${app.settings.nearExpiryDays}d)')),
         if (near.isEmpty)
           Container(
               decoration: cardDecoration(context),
@@ -56,15 +57,15 @@ class AlertsScreen extends StatelessWidget {
         else
           CardList([for (final e in near) _batchRow(context, app, e, c.warning)]),
 
-        SectionHeader('🔴 संपलेला साठा · Out of stock'),
+        SectionHeader(tr('🔴 संपलेला साठा · Out of stock')),
         if (outOfStock.isEmpty)
           Container(
               decoration: cardDecoration(context),
-              child: const EmptyState('✅', 'Nothing out of stock'))
+              child: const EmptyState('✅', 'काहीही संपलेले नाही · Nothing out of stock'))
         else
           CardList([for (final p in outOfStock) _productRow(context, app, p)]),
 
-        SectionHeader('⚠️ कमी साठा · Low stock'),
+        SectionHeader(tr('⚠️ कमी साठा · Low stock')),
         if (lowStock.isEmpty)
           Container(
               decoration: cardDecoration(context),
@@ -74,7 +75,8 @@ class AlertsScreen extends StatelessWidget {
 
         const SizedBox(height: 12),
         Text(
-            'Low-stock is measured on total kg (bags × weight + loose). Expiry alerts only show while a batch still has stock. Thresholds are configurable in Settings.',
+            L('कमी साठा एकूण किलोवर मोजला जातो (गोणी × वजन + सुटे). बॅचमध्ये साठा असेपर्यंतच एक्सपायरी सूचना दिसते. मर्यादा सेटिंग्जमध्ये बदलता येतात.',
+                'Low-stock is measured on total kg (bags × weight + loose). Expiry alerts only show while a batch still has stock. Thresholds are configurable in Settings.'),
             style: TextStyle(fontSize: 11.5, color: c.muted)),
       ]),
     );
@@ -83,7 +85,6 @@ class AlertsScreen extends StatelessWidget {
   Widget _batchRow(BuildContext context, AppState app, ExpiryAlert e, Color color) {
     final c = context.c;
     final p = app.productOf(e.batch.productId);
-    final branch = app.branchOf(e.batch.branchId);
     final supplier = e.batch.supplierId == null ? null : app.supplierOf(e.batch.supplierId!);
     return InkWell(
       onTap: p == null
@@ -102,10 +103,10 @@ class AlertsScreen extends StatelessWidget {
                 Text(p?.nameMr.isNotEmpty == true ? p!.nameMr : (p?.name ?? e.batch.productId),
                     style: baloo(size: 13.5, weight: FontWeight.w700, color: c.ink)),
                 Text(
-                    'बॅच ${e.batch.batchNo} · ${branch?.nameMr ?? e.batch.branchId}'
+                    '${L('बॅच', 'Batch')} ${e.batch.batchNo}'
                     '${supplier != null ? ' · ${supplier.name}' : ''}',
                     style: TextStyle(fontSize: 11.5, color: c.ink2)),
-                Text('${e.batch.bagsAvailable} गोणी · ${kg(e.batch.looseKgAvailable)}',
+                Text('🛍️ ${e.batch.bagsAvailable} · ${kg(e.batch.looseKgAvailable)}',
                     style: TextStyle(fontSize: 11.5, color: c.muted)),
               ])),
           Container(
@@ -115,8 +116,8 @@ class AlertsScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(999)),
             child: Text(
                 e.isExpired
-                    ? '${-e.daysRemaining} दिवसांपूर्वी संपली'
-                    : '${e.daysRemaining} दिवस',
+                    ? L('${-e.daysRemaining} दिवसांपूर्वी संपली', 'Expired ${-e.daysRemaining} days ago')
+                    : L('${e.daysRemaining} दिवस', '${e.daysRemaining} days'),
                 style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 11)),
           ),
         ]),
@@ -142,7 +143,7 @@ class AlertsScreen extends StatelessWidget {
                 ProductName(p),
                 const SizedBox(height: 2),
                 Text(
-                    '${app.stockOf(p.id).bags} bags · ${kg(app.effKg(p.id))} total · threshold ${p.lowStockThresholdBags} bags',
+                    '🛍️ ${app.stockOf(p.id).bags} / ${p.lowStockThresholdBags}    ⚖️ ${kg(app.effKg(p.id))}',
                     style: TextStyle(fontSize: 12, color: c.ink2)),
               ])),
           StatusPill(app.levelOf(p.id)),

@@ -7,6 +7,7 @@ import '../../utils/formatters.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
+import '../../utils/lang.dart';
 
 /// Branch-to-branch stock transfer (spec §14). Selects a source batch (with
 /// its available quantity, branch and expiry) and a destination branch;
@@ -51,16 +52,17 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
       titleMr: 'शाखा हस्तांतरण',
       titleEn: 'Stock transfer',
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('एका शाखेतून दुसऱ्या शाखेत साठा हस्तांतरित करा — बॅच ओळख कायम राहते.\n'
-            'Move stock between branches — batch identity is preserved.',
+        Text(
+            tr('एका शाखेतून दुसऱ्या शाखेत साठा हस्तांतरित करा — बॅच ओळख कायम राहते.\n'
+                'Move stock between branches — batch identity is preserved.'),
             style: TextStyle(color: c.ink2, fontSize: 13)),
         const SizedBox(height: 14),
-        _label('उत्पादन · Product (filter, optional)'),
+        _label(tr('उत्पादन · Product (filter, optional)')),
         DropdownButtonFormField<String?>(
           initialValue: _productId,
           isExpanded: true,
           items: [
-            const DropdownMenuItem(value: null, child: Text('सर्व · All')),
+            DropdownMenuItem(value: null, child: Text(tr('सर्व · All'))),
             for (final p in app.products)
               DropdownMenuItem(value: p.id, child: Text(p.nameMr)),
           ],
@@ -70,7 +72,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
           }),
         ),
         const SizedBox(height: 12),
-        _label('स्रोत बॅच · Source batch *'),
+        _label(tr('स्रोत बॅच · Source batch *')),
         DropdownButtonFormField<String>(
           initialValue: _batchId,
           isExpanded: true,
@@ -81,38 +83,39 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                   child: Text(
                       '${app.productOf(b.productId)?.nameMr ?? b.productId} · ${b.batchNo} · '
                       '${app.branchOf(b.branchId)?.nameMr ?? b.branchId} · '
-                      '${b.bagsAvailable} bags + ${kg(b.looseKgAvailable)}',
+                      '🛍️ ${b.bagsAvailable} + ${kg(b.looseKgAvailable)}',
                       overflow: TextOverflow.ellipsis)),
           ],
-          hint: const Text('निवडा · Select'),
+          hint: Text(tr('निवडा · Select')),
           onChanged: (v) => setState(() => _batchId = v),
         ),
         if (batch != null) ...[
           const SizedBox(height: 6),
           Text(
-              'उपलब्ध · Available: ${batch.bagsAvailable} bags + ${kg(batch.looseKgAvailable)}'
+              '${L('उपलब्ध', 'Available')}: 🛍️ ${batch.bagsAvailable} + ${kg(batch.looseKgAvailable)}'
               '${batch.expiry != null ? ' · Expiry ${dayFull(batch.expiry!)}' : ''}',
               style: TextStyle(fontSize: 11.5, color: c.muted)),
         ],
         const SizedBox(height: 12),
-        _label('लक्ष्य शाखा · Destination branch *'),
+        _label(tr('लक्ष्य शाखा · Destination branch *')),
         DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: _destBranchId,
           items: [
             for (final b in app.branches.where((b) => b.id != batch?.branchId))
               DropdownMenuItem(value: b.id, child: Text('${b.nameMr} · ${b.name}')),
           ],
-          hint: const Text('निवडा · Select'),
+          hint: Text(tr('निवडा · Select')),
           onChanged: (v) => setState(() => _destBranchId = v),
         ),
         const SizedBox(height: 12),
         Row(children: [
-          Expanded(child: _field('गोणी · Bags', _bags, number: true)),
+          Expanded(child: _field(tr('गोणी · Bags'), _bags, number: true)),
           const SizedBox(width: 11),
-          Expanded(child: _field('सुटे (kg) · Loose kg', _looseKg, number: true)),
+          Expanded(child: _field(L('सुटे (kg)', 'Loose kg'), _looseKg, number: true)),
         ]),
         const SizedBox(height: 8),
-        BigButton.brand(_busy ? 'हस्तांतरित करत आहे... · Transferring...' : '🔁 हस्तांतरण करा · Transfer',
+        BigButton.brand(_busy ? tr('हस्तांतरित करत आहे... · Transferring...') : tr('🔁 हस्तांतरण करा · Transfer'),
             onTap: _busy ? null : () => _submit(app, batch)),
       ]),
     );
@@ -120,17 +123,17 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
 
   Future<void> _submit(AppState app, Batch? batch) async {
     if (batch == null) {
-      showToast(context, 'स्रोत बॅच निवडा · Pick a source batch');
+      showToast(context, tr('स्रोत बॅच निवडा · Pick a source batch'));
       return;
     }
     if (_destBranchId == null) {
-      showToast(context, 'लक्ष्य शाखा निवडा · Pick a destination branch');
+      showToast(context, tr('लक्ष्य शाखा निवडा · Pick a destination branch'));
       return;
     }
     final bags = int.tryParse(_bags.text) ?? 0;
     final looseKg = double.tryParse(_looseKg.text) ?? 0;
     if (bags <= 0 && looseKg <= 0) {
-      showToast(context, 'योग्य प्रमाण टाका · Enter a valid quantity');
+      showToast(context, tr('योग्य प्रमाण टाका · Enter a valid quantity'));
       return;
     }
     setState(() => _busy = true);
@@ -141,7 +144,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
       if (error != null) {
         showToast(context, error);
       } else {
-        showToast(context, 'हस्तांतरण पूर्ण · Transfer complete');
+        showToast(context, tr('हस्तांतरण पूर्ण · Transfer complete'));
         Navigator.pop(context);
       }
     } finally {

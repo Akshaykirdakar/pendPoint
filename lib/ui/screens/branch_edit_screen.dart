@@ -5,6 +5,7 @@ import '../../state/app_state.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
+import '../../utils/lang.dart';
 
 /// Branch Master create/edit — mirrors [ProductEditScreen]'s conventions
 /// (optional id = new vs edit, `_label`/`_f` field helpers, busy-gated save).
@@ -48,17 +49,17 @@ class _BranchEditScreenState extends State<BranchEditScreen> {
       titleMr: edit ? 'शाखा संपादन' : 'नवीन शाखा',
       titleEn: edit ? 'Edit branch' : 'New branch',
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _f('Name (English)', en),
-        _f('मराठी नाव · Marathi name', mr),
-        _f('पत्ता · Address', address),
+        _f(tr('इंग्रजी नाव · Name (English)'), en),
+        _f(tr('मराठी नाव · Marathi name'), mr),
+        _f(tr('पत्ता · Address'), address),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('सक्रिय · Active'),
+          title: Text(tr('सक्रिय · Active')),
           value: active,
           onChanged: busy ? null : (v) => setState(() => active = v),
         ),
         const SizedBox(height: 8),
-        BigButton.brand(busy ? 'Saving...' : 'जतन करा · Save',
+        BigButton.brand(busy ? 'Saving...' : tr('जतन करा · Save'),
             onTap: busy ? null : _save),
       ]),
     );
@@ -66,7 +67,7 @@ class _BranchEditScreenState extends State<BranchEditScreen> {
 
   Future<void> _save() async {
     if (en.text.trim().isEmpty && mr.text.trim().isEmpty) {
-      showToast(context, 'नाव टाका · Enter a name');
+      showToast(context, tr('नाव टाका · Enter a name'));
       return;
     }
     setState(() => busy = true);
@@ -79,12 +80,12 @@ class _BranchEditScreenState extends State<BranchEditScreen> {
             active: active,
           );
       if (mounted) {
-        showToast(context, 'शाखा जतन · Branch saved');
+        showToast(context, tr('शाखा जतन · Branch saved'));
         Navigator.pop(context);
       }
     } catch (_) {
       if (mounted) {
-        showToast(context, 'जतन करता आले नाही · Unable to save branch');
+        showToast(context, tr('जतन करता आले नाही · Unable to save branch'));
       }
     } finally {
       if (mounted) setState(() => busy = false);

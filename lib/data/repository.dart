@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../models/app_settings.dart';
 import '../models/batch.dart';
 import '../models/bill.dart';
@@ -6,10 +8,12 @@ import '../models/brand.dart';
 import '../models/customer.dart';
 import '../models/enums.dart';
 import '../models/product.dart';
+import '../models/purchase.dart';
 import '../models/staff.dart';
 import '../models/stock.dart';
 import '../models/stock_log.dart';
 import '../models/supplier.dart';
+import 'stock_commit.dart';
 
 /// A full bootstrap snapshot of the shop. Kept as a convenience for repository
 /// implementations (e.g. [InMemoryRepository] builds one seed and splits it
@@ -82,12 +86,14 @@ class HistorySnapshot {
   final List<Bill> bills;
   final List<Customer> customers;
   final List<Batch> batches;
+  final List<Purchase> purchases;
 
   HistorySnapshot({
     required this.logs,
     required this.bills,
     required this.customers,
     required this.batches,
+    this.purchases = const [],
   });
 }
 
@@ -107,8 +113,31 @@ abstract class Repository {
   Future<HistorySnapshot> loadHistory();
 
   Future<int> nextBillNumber();
+  Future<int> nextPurchaseNumber();
+
+  /// Commits one stock-affecting business operation (sale, void, bill edit,
+  /// purchase, purchase void/edit, stock-in, return) atomically: batch
+  /// quantity deltas are applied to the CURRENT stored values (never a
+  /// stale local copy), no batch may go below zero, bill/purchase status
+  /// patches re-check the expected status, and every document in the
+  /// commit is written all-or-nothing. Throws [StockCommitException] when
+  /// rejected; nothing is written in that case.
+  Future<void> commitStock(StockCommit commit);
 
   Future<void> upsertBrand(Brand brand);
+
+  /// Deletes brand [brandId] together with [productIds] (its products —
+  /// the caller has checked they hold no stock and have no history) in ONE
+  /// atomic write, so a product is never left without its brand.
+  Future<void> deleteBrand(String brandId, {List<String> productIds = const []});
+
+  /// Uploads an (optional) brand logo/photo to `brands/{brandId}/…` in
+  /// Storage and returns its download URL.
+  Future<String> uploadBrandPhoto(
+      String brandId, Uint8List bytes, String extension);
+
+  /// Removes a brand photo by its download URL (missing file is fine).
+  Future<void> deleteBrandPhoto(String url);
   Future<void> upsertStaff(Staff staff);
   Future<void> upsertProduct(Product product, {Stock? initialStock});
   Future<void> deleteProduct(String productId);
@@ -121,12 +150,38 @@ abstract class Repository {
   Future<void> setStock(Stock stock);
   Future<void> addStockLog(StockLog log);
 
-  Future<void> saveBill(Bill bill);
-  Future<void> updateBillStatus(String billId, BillStatus status);
-
   Future<void> upsertCustomer(Customer customer);
   Future<void> addLedgerEntry(
       String customerId, LedgerEntry entry, double newOutstanding);
 
   Future<void> saveSettings(AppSettings settings);
+
+  /// Uploads the photo of a supplier's paper bill for purchase
+  /// [purchaseId] (to `purchase-bills/{purchaseId}/…` in Storage) and
+  /// returns where it was stored. Purchases work without a photo.
+  Future<StoredPhoto> uploadPurchaseBillPhoto(
+      String purchaseId, Uint8List bytes, String extension);
+
+  /// Reads a previously uploaded bill photo back (null if it is gone).
+  Future<Uint8List?> loadPurchaseBillPhoto(String path);
+
+  /// Deletes an uploaded bill photo — only used to clean up after a
+  /// purchase save that failed; saved revisions keep their photos.
+  Future<void> deletePurchaseBillPhoto(String path);
+}
+
+/// Where an uploaded photo was stored: [path] for the app, [url] for display.
+class StoredPhoto {
+  final String path;
+  final String url;
+  const StoredPhoto(this.path, this.url);
+}
+
+/// `purchase-bills/{purchaseId}/bill_<time>.<ext>` — one folder per
+/// purchase; a new file name each upload so a replaced photo never
+/// overwrites the one an older revision still points at.
+String purchaseBillPhotoPath(String purchaseId, String extension) {
+  final ext = extension.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
+  final safe = const {'jpg', 'jpeg', 'png', 'webp'}.contains(ext) ? ext : 'jpg';
+  return 'purchase-bills/$purchaseId/bill_${DateTime.now().millisecondsSinceEpoch}.$safe';
 }

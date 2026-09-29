@@ -7,9 +7,14 @@ import '../../utils/formatters.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
+import '../widgets/pickers.dart';
+import '../widgets/tiles.dart';
 import 'cart_screen.dart';
 import 'product_detail_screen.dart';
+import 'returns_screen.dart';
+import 'sales_entry_screen.dart';
 import 'scan_screen.dart';
+import '../../utils/lang.dart';
 
 /// Sell entry point: scan a QR or search the catalogue by brand / product.
 class SellScreen extends StatefulWidget {
@@ -20,6 +25,7 @@ class SellScreen extends StatefulWidget {
 
 class _SellScreenState extends State<SellScreen> {
   String _q = '';
+  String? _brandId; // null = All Brands
 
   @override
   Widget build(BuildContext context) {
@@ -30,32 +36,61 @@ class _SellScreenState extends State<SellScreen> {
       final b = app.brandOf(p.brandId);
       final hay = '${p.name}${p.nameMr}${b?.name ?? ''}${b?.nameMr ?? ''}'
           .toLowerCase();
-      return q.isEmpty || hay.contains(q);
+      // Products of an inactive brand aren't offered for new sales.
+      return app.isProductSelectable(p) &&
+          (_brandId == null || p.brandId == _brandId) &&
+          (q.isEmpty || hay.contains(q));
     }).toList();
 
     return PendScaffold(
       titleMr: 'नवीन बिल',
       titleEn: 'New Sale',
       actions: [
-        BarAction('🧾 बिल${cartN > 0 ? ' ($cartN)' : ''}',
+        BarAction('🧾 ${L('बिल', 'Cart')}${cartN > 0 ? ' ($cartN)' : ''}',
             onTap: () => _push(context, const CartScreen())),
       ],
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        BigButton.brand('📷 QR स्कॅन करा · Scan QR',
-            icon: Icons.qr_code_scanner_rounded,
-            onTap: () => _push(context, const ScanScreen())),
+        TileGrid(columns: 3, gap: 10, [
+          BigTile(
+              key: const ValueKey('sell-bill-entry'),
+              icon: Icons.point_of_sale_rounded,
+              mr: 'नवीन बिल',
+              en: 'New bill',
+              color: context.c.accent,
+              onTap: () => _push(context, const SalesEntryScreen())),
+          BigTile(
+              icon: Icons.qr_code_scanner_rounded,
+              mr: 'QR स्कॅन',
+              en: 'Scan QR',
+              color: context.c.brand,
+              onTap: () => _push(context, const ScanScreen())),
+          BigTile(
+              key: const ValueKey('sell-bills'),
+              icon: Icons.receipt_long_rounded,
+              mr: 'बिले',
+              en: 'Bills',
+              color: context.c.s2,
+              onTap: () => _push(context, const ReturnsScreen())),
+        ]),
         const SizedBox(height: 14),
+        BrandField(
+          key: const ValueKey('sell-brand-filter'),
+          app: app,
+          brandId: _brandId,
+          onChanged: (id) => setState(() => _brandId = id),
+        ),
+        const SizedBox(height: 8),
         TextField(
-          decoration: const InputDecoration(
-              hintText: 'शोधा · Search brand or product',
+          decoration: InputDecoration(
+              hintText: tr('शोधा · Search brand or product'),
               prefixIcon: Icon(Icons.search_rounded)),
           onChanged: (v) => setState(() => _q = v),
         ),
         const SizedBox(height: 6),
         if (results.isEmpty)
-          const Padding(
+          Padding(
               padding: EdgeInsets.only(top: 20),
-              child: EmptyState('🔍', 'काही सापडले नाही · No match'))
+              child: EmptyState('🔍', tr('काही सापडले नाही · No match')))
         else
           ..._byBrand(context, app, results),
       ]),
@@ -91,7 +126,7 @@ class _SellScreenState extends State<SellScreen> {
                   ProductName(p),
                   const SizedBox(height: 2),
                   Text(
-                      '${p.bagWeightKg}kg · ${money(p.fullBagPrice)}/bag · ${money(p.perKgPrice)}/kg',
+                      '${p.bagWeightKg}kg · ${money(p.fullBagPrice)}/${tr('गोणी · bag')} · ${money(p.perKgPrice)}/kg',
                       style: TextStyle(fontSize: 12, color: c.ink2)),
                 ]),
           ),

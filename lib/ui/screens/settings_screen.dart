@@ -9,8 +9,10 @@ import '../../services/dev_seed_service.dart';
 import '../../services/thermal_printer_service.dart';
 import '../../state/app_state.dart';
 import '../../utils/theme.dart';
+import '../widgets/appearance_settings.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
+import '../../utils/lang.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -54,20 +56,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Padding(
             padding: const EdgeInsets.only(left: 2, bottom: 5),
-            child: Text('दुकानाचे नाव · Shop name',
+            child: Text(tr('दुकानाचे नाव · Shop name'),
                 style: TextStyle(
                     fontSize: 12, fontWeight: FontWeight.w700, color: c.ink2))),
         TextField(
             controller: _shopCtrl,
             onSubmitted: (v) {
               _save(context, app, (s) => s.shop = v);
-              showToast(context, 'जतन झाले · Saved');
+              showToast(context, tr('जतन झाले · Saved'));
             }),
         BigButton.brand(_shopSaving ? 'Saving...' : 'Save shop name',
             onTap: (!isAdmin || !_shopChanged || _shopSaving)
                 ? null
                 : () => _saveShop(app)),
-        SectionHeader('भाषा · Language'),
+        SectionHeader(tr('भाषा · Language')),
         _seg(context, [
           (
             'मराठी',
@@ -85,25 +87,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             () => _save(context, app, (s) => s.lang = AppLang.en)
           ),
         ]),
-        SectionHeader('देखावा · Appearance'),
+        SectionHeader(tr('देखावा · Appearance')),
         _seg(context, [
           (
-            'ऑटो',
+            L('ऑटो', 'Auto'),
             app.settings.theme == AppThemeMode.system,
             () => _save(context, app, (s) => s.theme = AppThemeMode.system)
           ),
           (
-            '☀️ Light',
+            '☀️ ${L('उजेड', 'Light')}',
             app.settings.theme == AppThemeMode.light,
             () => _save(context, app, (s) => s.theme = AppThemeMode.light)
           ),
           (
-            '🌙 Dark',
+            '🌙 ${L('गडद', 'Dark')}',
             app.settings.theme == AppThemeMode.dark,
             () => _save(context, app, (s) => s.theme = AppThemeMode.dark)
           ),
         ]),
-        SectionHeader('प्रिंटर · Bluetooth printer'),
+        AppearanceSettings(app: app),
+        SectionHeader(tr('प्रिंटर · Bluetooth printer')),
         Container(
           decoration: cardDecoration(context),
           padding: const EdgeInsets.all(14),
@@ -120,24 +123,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Expanded(
                 child: Text(
                   app.settings.printerAddress == null
-                      ? 'जोडलेला प्रिंटर नाही · No printer paired'
-                      : '${app.settings.printerName ?? 'Printer'} जोडले · Paired',
+                      ? tr('जोडलेला प्रिंटर नाही · No printer paired')
+                      : tr('${app.settings.printerName ?? 'Printer'} जोडले · Paired'),
                   style: TextStyle(fontWeight: FontWeight.w600, color: c.ink),
                 ),
               ),
             ]),
             const SizedBox(height: 10),
-            BigButton.ghost('🔍 जोडलेली उपकरणे · Choose paired device',
+            BigButton.ghost(tr('🔍 जोडलेली उपकरणे · Choose paired device'),
                 onTap: () => _showPrinterPicker(context, app)),
             if (app.settings.printerAddress != null) ...[
               const SizedBox(height: 8),
-              BigButton.ghost('✕ प्रिंटर काढा · Forget printer', onTap: () {
+              BigButton.ghost(tr('✕ प्रिंटर काढा · Forget printer'), onTap: () {
                 app.updateSettings((s) {
                   s.printerName = null;
                   s.printerAddress = null;
                 });
                 ThermalPrinterService.instance.disconnect();
-                showToast(context, 'प्रिंटर काढले · Printer removed');
+                showToast(context, tr('प्रिंटर काढले · Printer removed'));
               }),
             ],
             const SizedBox(height: 8),
@@ -146,40 +149,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: TextStyle(fontSize: 11.5, color: c.muted)),
           ]),
         ),
-        SectionHeader('🔔 इन्व्हेंटरी सूचना · Inventory Alerts'),
-        Container(
-          decoration: cardDecoration(context),
+        SectionHeader(tr('🔔 इन्व्हेंटरी सूचना · Inventory Alerts')),
+        // InkCard (not a decorated Container) so the switch rows' ripples
+        // paint on the card's own Material.
+        InkCard(
           padding: const EdgeInsets.all(4),
           child: Column(children: [
             SwitchListTile(
-              title: const Text('एक्सपायरी सूचना · Expiry alerts'),
+              title: Text(tr('एक्सपायरी सूचना · Expiry alerts')),
               value: app.settings.expiryAlertsOn,
               onChanged: (v) => _save(context, app, (s) => s.expiryAlertsOn = v),
             ),
-            _thresholdRow(context, app, 'नजीक एक्सपायरी · Near Expiry (days)',
+            _thresholdRow(context, app, tr('नजीक एक्सपायरी · Near Expiry (days)'),
                 app.settings.nearExpiryDays, (v) => (s) => s.nearExpiryDays = v),
-            _thresholdRow(context, app, 'एक्सपायरी लवकर · Expiry Soon (days)',
+            _thresholdRow(context, app, tr('एक्सपायरी लवकर · Expiry Soon (days)'),
                 app.settings.expirySoonDays, (v) => (s) => s.expirySoonDays = v),
-            _thresholdRow(context, app, 'गंभीर एक्सपायरी · Critical Expiry (days)',
+            _thresholdRow(context, app, tr('गंभीर एक्सपायरी · Critical Expiry (days)'),
                 app.settings.criticalExpiryDays, (v) => (s) => s.criticalExpiryDays = v),
             SwitchListTile(
-              title: const Text('कमी साठा सूचना · Low stock alerts'),
+              title: Text(tr('कमी साठा सूचना · Low stock alerts')),
               value: app.settings.lowStockAlertsOn,
               onChanged: (v) => _save(context, app, (s) => s.lowStockAlertsOn = v),
             ),
             SwitchListTile(
-              title: const Text('संपलेला साठा सूचना · Out of stock alerts'),
+              title: Text(tr('संपलेला साठा सूचना · Out of stock alerts')),
               value: app.settings.outOfStockAlertsOn,
               onChanged: (v) => _save(context, app, (s) => s.outOfStockAlertsOn = v),
             ),
             SwitchListTile(
-              title: const Text('बॅच सूचना · Batch alerts'),
+              title: Text(tr('बॅच सूचना · Batch alerts')),
               value: app.settings.batchAlertsOn,
               onChanged: (v) => _save(context, app, (s) => s.batchAlertsOn = v),
             ),
           ]),
         ),
-        SectionHeader('बॅकअप · Backup'),
+        SectionHeader(tr('बॅकअप · Backup')),
         Container(
           decoration: cardDecoration(context),
           padding: const EdgeInsets.all(14),
@@ -189,12 +193,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 'In production this is a scheduled Firestore export to Cloud Storage, plus an on-demand CSV/JSON the owner can keep.',
                 style: TextStyle(fontSize: 12.5, color: c.ink2)),
             const SizedBox(height: 10),
-            BigButton.ghost('📋 बॅकअप बद्दल · About backup',
+            BigButton.ghost(tr('📋 बॅकअप बद्दल · About backup'),
                 onTap: () => showDialog(
                       context: context,
                       builder: (ctx) => AlertDialog(
                         backgroundColor: c.surface,
-                        title: Text('बॅकअप · Backup',
+                        title: Text(tr('बॅकअप · Backup'),
                             style: baloo(
                                 size: 17,
                                 weight: FontWeight.w700,
@@ -205,13 +209,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         actions: [
                           TextButton(
                               onPressed: () => Navigator.pop(ctx),
-                              child: const Text('ठीक'))
+                              child: Text(L('ठीक', 'OK')))
                         ],
                       ),
                     )),
           ]),
         ),
-        SectionHeader('खाते · Account'),
+        SectionHeader(tr('खाते · Account')),
         Container(
           decoration: cardDecoration(context),
           padding: const EdgeInsets.all(14),
@@ -220,24 +224,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Text(FirebaseAuth.instance.currentUser?.email ?? 'Signed-in user',
                 style: TextStyle(fontWeight: FontWeight.w700, color: c.ink)),
             const SizedBox(height: 10),
-            BigButton.danger('बाहेर पडा · Sign Out',
+            BigButton.danger(tr('बाहेर पडा · Sign Out'),
                 onTap: () => _signOut(context)),
           ]),
         ),
-        SectionHeader('प्रोटोटाइप · Prototype'),
+        SectionHeader(tr('प्रोटोटाइप · Prototype')),
         Container(
           decoration: cardDecoration(context),
           padding: const EdgeInsets.all(14),
-          child: BigButton.danger('♻️ नमुना डेटा रीसेट करा · Reset sample data',
+          child: BigButton.danger(tr('♻️ नमुना डेटा रीसेट करा · Reset sample data'),
               onTap: () => showDialog(
                     context: context,
                     builder: (ctx) => AlertDialog(
                       backgroundColor: c.surface,
-                      title: const Text('Reset to sample shop?'),
+                      title: Text(L('नमुना दुकान पुन्हा सेट करायचे?', 'Reset to sample shop?')),
                       actions: [
                         TextButton(
                             onPressed: () => Navigator.pop(ctx),
-                            child: const Text('रद्द')),
+                            child: Text(L('रद्द', 'Cancel'))),
                         FilledButton(
                             onPressed: () async {
                               await app.resetSampleData();
@@ -246,10 +250,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               }
                               if (context.mounted) {
                                 showToast(
-                                    context, 'रीसेट झाले · Sample data reset');
+                                    context, tr('रीसेट झाले · Sample data reset'));
                               }
                             },
-                            child: const Text('रीसेट')),
+                            child: Text(L('रीसेट', 'Reset'))),
                       ],
                     ),
                   )),
@@ -261,7 +265,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             padding: const EdgeInsets.all(14),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               BigButton.brand(
-                  _seeding ? 'तयार करत आहे... · Seeding...' : '🌱 Seed Demo Data (Dev only)',
+                  _seeding ? tr('तयार करत आहे... · Seeding...') : '🌱 Seed Demo Data (Dev only)',
                   onTap: _seeding ? null : () => _seedDemoData(context, app)),
               const SizedBox(height: 6),
               Text(
@@ -288,7 +292,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         context: context,
         builder: (ctx) => AlertDialog(
           backgroundColor: context.c.surface,
-          title: Text(result.alreadySeeded ? 'Already seeded' : 'Demo data seeded'),
+          title: Text(result.alreadySeeded
+              ? L('नमुना डेटा आधीच आहे', 'Already seeded')
+              : L('नमुना डेटा जोडला', 'Demo data seeded')),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -323,10 +329,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await app.updateSettings((s) => s.shop = _shopCtrl.text.trim());
       if (mounted) {
         setState(() => _shopChanged = false);
-        showToast(context, 'Saved successfully');
+        showToast(context, L('जतन झाले', 'Saved successfully'));
       }
     } catch (e) {
-      if (mounted) showToast(context, 'Save failed: $e');
+      if (mounted) showToast(context, '${L('जतन झाले नाही', 'Save failed')}: $e');
     } finally {
       if (mounted) setState(() => _shopSaving = false);
     }
@@ -365,11 +371,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       void Function(AppSettings) mutate) async {
     try {
       await app.updateSettings(mutate);
-      if (context.mounted) showToast(context, 'जतन झाले · Saved');
+      if (context.mounted) showToast(context, tr('जतन झाले · Saved'));
     } catch (_) {
       if (context.mounted) {
         showToast(
-            context, 'सेटिंग्ज जतन करता आल्या नाहीत · Unable to save settings');
+            context, tr('सेटिंग्ज जतन करता आल्या नाहीत · Unable to save settings'));
       }
     }
   }
@@ -378,9 +384,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final yes = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-              title: const Text('बाहेर पडा · Sign Out'),
-              content: const Text(
-                  'तुम्हाला साइन आउट करायचे आहे का?\nAre you sure you want to sign out?'),
+              title: Text(tr('बाहेर पडा · Sign Out')),
+              content: Text(
+                  tr('तुम्हाला साइन आउट करायचे आहे का?\nAre you sure you want to sign out?')),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(ctx, false),
@@ -399,7 +405,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!permitted) {
       if (context.mounted) {
         showToast(
-            context, 'ब्लूटूथ परवानगी आवश्यक · Bluetooth permission needed');
+            context, tr('ब्लूटूथ परवानगी आवश्यक · Bluetooth permission needed'));
       }
       return;
     }
@@ -407,7 +413,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!context.mounted) return;
     if (devices.isEmpty) {
       showToast(context,
-          'जोडलेले उपकरण नाही — फोनच्या ब्लूटूथ सेटिंग्जमध्ये प्रथम पेअर करा · No paired device — pair it in phone Bluetooth settings first');
+          tr('जोडलेले उपकरण नाही — फोनच्या ब्लूटूथ सेटिंग्जमध्ये प्रथम पेअर करा · No paired device — pair it in phone Bluetooth settings first'));
       return;
     }
     final c = context.c;
@@ -430,7 +436,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       decoration: BoxDecoration(
                           color: c.line,
                           borderRadius: BorderRadius.circular(9)))),
-              Text('प्रिंटर निवडा · Choose printer',
+              Text(tr('प्रिंटर निवडा · Choose printer'),
                   style:
                       baloo(size: 18, weight: FontWeight.w700, color: c.ink)),
               const SizedBox(height: 12),
@@ -466,7 +472,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!ok) {
       if (screenContext.mounted) {
         showToast(
-            screenContext, 'प्रिंटरशी जोडता आले नाही · Could not connect');
+            screenContext, tr('प्रिंटरशी जोडता आले नाही · Could not connect'));
       }
       return;
     }
@@ -475,7 +481,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       s.printerAddress = device.address;
     });
     if (screenContext.mounted) {
-      showToast(screenContext, 'प्रिंटर जोडले · Printer paired');
+      showToast(screenContext, tr('प्रिंटर जोडले · Printer paired'));
     }
   }
 

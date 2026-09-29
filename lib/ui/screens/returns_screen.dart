@@ -3,116 +3,205 @@ import 'package:provider/provider.dart';
 
 import '../../models/bill.dart';
 import '../../models/enums.dart';
+import '../../models/party.dart';
 import '../../state/app_state.dart';
 import '../../utils/formatters.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
+import 'bill_screen.dart';
+import 'sales_entry_screen.dart';
+import '../../utils/lang.dart';
 
-class ReturnsScreen extends StatelessWidget {
+/// Saved bills — search by bill no. or party (code / name / mobile), open,
+/// edit, partially return or void. Bills are never deleted: void and edit
+/// keep the original, marked, for the audit trail.
+class ReturnsScreen extends StatefulWidget {
   const ReturnsScreen({super.key});
+  @override
+  State<ReturnsScreen> createState() => _ReturnsScreenState();
+}
+
+class _ReturnsScreenState extends State<ReturnsScreen> {
+  final _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final c = context.c;
-    final bills = [...app.bills]..sort((a, b) => b.at.compareTo(a.at));
-    final recent = bills.take(15).toList();
+    final q = _search.text.trim().toLowerCase().replaceAll('#', '');
+    final bills = app.bills.where((b) {
+      if (q.isEmpty) return true;
+      if ('${b.billNumber}' == q) return true;
+      if (b.customerName.toLowerCase().contains(q)) return true;
+      final party = b.customerId == null ? null : app.partyOf(b.customerId!);
+      return party != null && partyMatchRank(party, q) != null;
+    }).toList()
+      ..sort((a, b) => b.at.compareTo(a.at));
+    final recent = bills.take(q.isEmpty ? 30 : 100).toList();
 
     return PendScaffold(
-      titleMr: 'परतावा / रद्द',
-      titleEn: 'Returns & void',
+      titleMr: 'बिले · दुरुस्ती / परतावा / रद्द',
+      titleEn: 'Bills — edit, return, void',
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        TextField(
+          key: const ValueKey('bills-search'),
+          controller: _search,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+              prefixIcon: Icon(Icons.search_rounded, size: 20),
+              hintText: tr('बिल क्र. किंवा पार्टी · Bill no. or party')),
+        ),
+        const SizedBox(height: 8),
         Text(
-            'बिल रद्द केल्यास साठा परत जमा होतो · Voiding a bill restores its stock. Bills are kept (marked void), never deleted.',
-            style: TextStyle(color: c.ink2, fontSize: 13)),
-        const SizedBox(height: 14),
-        if (app.historyLoading && bills.isEmpty)
+            tr('बिल दुरुस्त/रद्द केल्यास साठा आपोआप दुरुस्त होतो. बिले कधीही हटवली जात नाहीत · Editing or voiding fixes stock automatically. Bills are kept (marked), never deleted.'),
+            style: TextStyle(color: c.ink2, fontSize: 12)),
+        const SizedBox(height: 12),
+        if (app.historyLoading && app.bills.isEmpty)
           const HistoryLoadingNote()
+        else if (recent.isEmpty)
+          EmptyState('🧾', tr('बिल सापडले नाही · No bill found'))
         else
           CardList([
             for (final b in recent)
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(children: [
-                  CircleAvatar(
-                      backgroundColor: c.surface2, child: const Text('🧾')),
-                  const SizedBox(width: 12),
-                  Expanded(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
+              InkWell(
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => BillScreen(billId: b.id))),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                         Row(children: [
-                          Text('#${b.billNumber}',
+                          CircleAvatar(
+                              backgroundColor: c.surface2,
+                              child: const Text('🧾')),
+                          const SizedBox(width: 12),
+                          Expanded(
+                              child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                Wrap(
+                                    spacing: 6,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    children: [
+                                      Text(
+                                          '#${b.billNumber}${b.isRevised ? ' R${b.revision}' : ''}',
+                                          style: baloo(
+                                              size: 15,
+                                              weight: FontWeight.w800,
+                                              color: c.ink)),
+                                      if (b.status == BillStatus.voided)
+                                        Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 7, vertical: 2),
+                                            decoration: BoxDecoration(
+                                                color: c.critical
+                                                    .withValues(alpha: 0.14),
+                                                borderRadius:
+                                                    BorderRadius.circular(999)),
+                                            child: Text(
+                                                b.wasReplaced
+                                                    ? tr('दुरुस्त · Edited')
+                                                    : tr('रद्द · Void'),
+                                                style: TextStyle(
+                                                    color: c.critical,
+                                                    fontSize: 11,
+                                                    fontWeight:
+                                                        FontWeight.w700))),
+                                    ]),
+                                Text(
+                                    '${b.customerName.isEmpty ? '' : '${b.customerName} · '}${dateTimeShort(b.at)} · ${b.payments.map((p) => payModeLabel(p.mode)).join(' + ')}',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style:
+                                        TextStyle(fontSize: 12, color: c.ink2)),
+                              ])),
+                          const SizedBox(width: 8),
+                          Text(money(b.total),
                               style: baloo(
-                                  size: 14,
-                                  weight: FontWeight.w700,
+                                  size: 16,
+                                  weight: FontWeight.w800,
                                   color: c.ink)),
-                          if (b.status == BillStatus.voided) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 1),
-                                decoration: BoxDecoration(
-                                    color: c.critical.withValues(alpha: 0.14),
-                                    borderRadius: BorderRadius.circular(999)),
-                                child: Text('रद्द',
-                                    style: TextStyle(
-                                        color: c.critical,
-                                        fontSize: 10.5,
-                                        fontWeight: FontWeight.w700))),
-                          ],
                         ]),
-                        Text(
-                            '${dateTimeShort(b.at)} · ${b.items.length} items · ${b.payments.map((p) => p.mode.name).join('+')}',
-                            style: TextStyle(fontSize: 11.5, color: c.ink2)),
-                      ])),
-                  Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                    Text(money(b.total),
-                        style: baloo(
-                            size: 14, weight: FontWeight.w800, color: c.ink)),
-                    if (b.status != BillStatus.voided) ...[
-                      const SizedBox(height: 5),
-                      Row(mainAxisSize: MainAxisSize.min, children: [
-                        GestureDetector(
-                          onTap: () => _openPartialReturn(context, app, b),
-                          child: Container(
-                              margin: const EdgeInsets.only(right: 6),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 9, vertical: 4),
-                              decoration: BoxDecoration(
-                                  color: c.serious.withValues(alpha: 0.14),
-                                  borderRadius: BorderRadius.circular(8)),
-                              child: Text('आंशिक परतावा · Return',
-                                  style: TextStyle(
-                                      color: c.serious,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700))),
-                        ),
-                        GestureDetector(
-                          onTap: () =>
-                              _confirmVoid(context, app, b.id, b.billNumber),
-                          child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 9, vertical: 4),
-                              decoration: BoxDecoration(
-                                  color: c.critical.withValues(alpha: 0.14),
-                                  borderRadius: BorderRadius.circular(8)),
-                              child: Text('रद्द Void',
-                                  style: TextStyle(
-                                      color: c.critical,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700))),
-                        ),
+                        // Correction actions on their own full-width row —
+                        // big enough to tap on a small phone.
+                        if (b.status != BillStatus.voided) ...[
+                          const SizedBox(height: 10),
+                          Row(children: [
+                            _action(context, tr('✏️ दुरुस्त · Edit'), c.brand,
+                                () => _edit(context, app, b),
+                                key: ValueKey('bills-edit-${b.id}')),
+                            const SizedBox(width: 8),
+                            _action(
+                                context,
+                                tr('↩️ परतावा · Return'),
+                                c.serious,
+                                () => _openPartialReturn(context, app, b)),
+                            const SizedBox(width: 8),
+                            _action(
+                                context,
+                                tr('❌ रद्द · Void'),
+                                c.critical,
+                                () => _confirmVoid(
+                                    context, app, b.id, b.billNumber)),
+                          ]),
+                        ],
                       ]),
-                    ],
-                  ]),
-                ]),
+                ),
               ),
           ]),
       ]),
     );
+  }
+
+  Widget _action(
+          BuildContext context, String label, Color color, VoidCallback onTap,
+          {Key? key}) =>
+      Expanded(
+        child: Material(
+          key: key,
+          color: color.withValues(alpha: 0.13),
+          borderRadius: BorderRadius.circular(10),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: onTap,
+            child: Container(
+              height: 42,
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: color, fontSize: 13, fontWeight: FontWeight.w800)),
+            ),
+          ),
+        ),
+      );
+
+  void _edit(BuildContext context, AppState app, Bill b) {
+    final why = app.whyBillNotEditable(b);
+    if (why != null) {
+      showToast(context, why);
+      return;
+    }
+    if (app.cart.isNotEmpty && app.editingBillId != b.id) {
+      showToast(context,
+          tr('आधी चालू बिल पूर्ण/रिकामे करा · Finish or clear the current cart first'));
+      return;
+    }
+    app.beginEditBill(b.id);
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const SalesEntryScreen()));
   }
 
   /// Partial sales return (spec §13) — each bill line, with a qty stepper
@@ -133,21 +222,19 @@ class ReturnsScreen extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('बिल #${bill.billNumber} · आंशिक परतावा',
+            Text(L('बिल #${bill.billNumber} · आंशिक परतावा', 'Bill #${bill.billNumber} · Partial return'),
                 style: baloo(
                     size: 17, weight: FontWeight.w700, color: context.c.ink)),
-            Text('Partial return',
-                style: TextStyle(fontSize: 12, color: context.c.muted)),
             const SizedBox(height: 12),
-            for (final item in bill.items)
-              _returnLineRow(ctx, app, bill, item),
+            for (final item in bill.items) _returnLineRow(ctx, app, bill, item),
           ],
         ),
       ),
     );
   }
 
-  Widget _returnLineRow(BuildContext context, AppState app, Bill bill, BillItem item) {
+  Widget _returnLineRow(
+      BuildContext context, AppState app, Bill bill, BillItem item) {
     final c = context.c;
     final p = app.productOf(item.productId);
     final already = app.returnedSoFar(bill, item);
@@ -160,21 +247,30 @@ class ReturnsScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-              Text(p?.nameMr.isNotEmpty == true ? p!.nameMr : (p?.name ?? item.productId),
-                  style: baloo(size: 13.5, weight: FontWeight.w700, color: c.ink)),
+              Text(
+                  p?.nameMr.isNotEmpty == true
+                      ? p!.nameMr
+                      : (p?.name ?? item.productId),
+                  style:
+                      baloo(size: 13.5, weight: FontWeight.w700, color: c.ink)),
               Text(
                   item.saleType == SaleType.bag
-                      ? '${item.qty.round()} गोणी विकले · already returned ${already.round()}'
-                      : '${kg(item.qty)} सुटे विकले · already returned ${kg(already)}',
+                      ? L(
+                          '${item.qty.round()} गोणी विकल्या · आधी परत ${already.round()}',
+                          '${item.qty.round()} bags sold · already returned ${already.round()}')
+                      : L(
+                          '${kg(item.qty)} सुटे विकले · आधी परत ${kg(already)}',
+                          '${kg(item.qty)} loose sold · already returned ${kg(already)}'),
                   style: TextStyle(fontSize: 11, color: c.ink2)),
             ])),
         if (maxReturnable <= 0)
-          Text('पूर्ण परत · Fully returned',
+          Text(tr('पूर्ण परत · Fully returned'),
               style: TextStyle(fontSize: 11, color: c.muted))
         else
           FilledButton.tonal(
-            onPressed: () => _promptReturnQty(context, app, bill, item, maxReturnable),
-            child: const Text('परत करा · Return'),
+            onPressed: () =>
+                _promptReturnQty(context, app, bill, item, maxReturnable),
+            child: Text(tr('परत करा · Return')),
           ),
       ]),
     );
@@ -182,27 +278,30 @@ class ReturnsScreen extends StatelessWidget {
 
   Future<void> _promptReturnQty(BuildContext context, AppState app, Bill bill,
       BillItem item, double maxReturnable) async {
-    final qtyCtrl = TextEditingController(text: maxReturnable.toStringAsFixed(
-        item.saleType == SaleType.bag ? 0 : 1));
+    final qtyCtrl = TextEditingController(
+        text: maxReturnable
+            .toStringAsFixed(item.saleType == SaleType.bag ? 0 : 1));
     final qty = await showDialog<double>(
       context: context,
       builder: (dialog) => AlertDialog(
         title: Text(item.saleType == SaleType.bag
-            ? 'गोणी परतावा · Return bags'
-            : 'सुटे परतावा · Return loose kg'),
+            ? tr('गोणी परतावा · Return bags')
+            : tr('सुटे परतावा · Return loose kg')),
         content: TextField(
           controller: qtyCtrl,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(
-              helperText: 'कमाल · Max ${maxReturnable.toStringAsFixed(
-                  item.saleType == SaleType.bag ? 0 : 1)}'),
+              helperText: tr(
+                  'कमाल · Max ${maxReturnable.toStringAsFixed(item.saleType == SaleType.bag ? 0 : 1)}')),
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dialog), child: const Text('रद्द')),
+              onPressed: () => Navigator.pop(dialog),
+              child: const Text('रद्द')),
           FilledButton(
-              onPressed: () => Navigator.pop(dialog, double.tryParse(qtyCtrl.text)),
-              child: const Text('जतन करा · Save')),
+              onPressed: () =>
+                  Navigator.pop(dialog, double.tryParse(qtyCtrl.text)),
+              child: Text(tr('जतन करा · Save'))),
         ],
       ),
     );
@@ -213,7 +312,7 @@ class ReturnsScreen extends StatelessWidget {
       showToast(context, error);
     } else {
       Navigator.of(context).pop(); // close the bottom sheet
-      showToast(context, 'परतावा नोंदवला · Return recorded');
+      showToast(context, tr('परतावा नोंदवला · Return recorded'));
     }
   }
 
@@ -222,27 +321,27 @@ class ReturnsScreen extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: context.c.surface,
-        title: Text('बिल #$number रद्द करायचे?',
+        title: Text(L('बिल #$number रद्द करायचे?', 'Void bill #$number?'),
             style:
                 baloo(size: 16, weight: FontWeight.w700, color: context.c.ink)),
-        content: Text('साठा परत जमा होईल. Stock will be restored.',
+        content: Text(tr('साठा परत जमा होईल · Stock will be restored.'),
             style: TextStyle(color: context.c.ink2)),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('नाही')),
+              onPressed: () => Navigator.pop(ctx), child: Text(L('नाही', 'No'))),
           FilledButton(
               style:
                   FilledButton.styleFrom(backgroundColor: context.c.critical),
               onPressed: () async {
-                await app.voidBill(id);
+                final error = await app.voidBill(id);
                 if (ctx.mounted) {
                   Navigator.pop(ctx);
                 }
                 if (context.mounted) {
-                  showToast(context, 'बिल रद्द झाले · Voided');
+                  showToast(context, error ?? tr('बिल रद्द झाले · Voided'));
                 }
               },
-              child: const Text('रद्द करा')),
+              child: Text(L('रद्द करा', 'Void'))),
         ],
       ),
     );

@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../../utils/lang.dart';
 
 /// Firebase email/password entry point for counter staff.
 class SignInScreen extends StatefulWidget {
@@ -60,7 +61,7 @@ class _SignInScreenState extends State<SignInScreen> {
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.headlineMedium),
                       const SizedBox(height: 8),
-                      Text('Counter staff sign in',
+                      Text(L('काउंटर कर्मचारी लॉगिन', 'Counter staff sign in'),
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.bodyLarge),
                       const SizedBox(height: 28),
@@ -68,21 +69,21 @@ class _SignInScreenState extends State<SignInScreen> {
                         controller: _email,
                         keyboardType: TextInputType.emailAddress,
                         autocorrect: false,
-                        decoration: const InputDecoration(labelText: 'Email'),
+                        decoration: InputDecoration(labelText: L('ईमेल', 'Email')),
                         validator: (value) => value != null &&
                                 RegExp(r'^\S+@\S+\.\S+$').hasMatch(value)
                             ? null
-                            : 'Enter a valid email address.',
+                            : L('योग्य ईमेल टाका', 'Enter a valid email address.'),
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _password,
                         obscureText: true,
                         decoration:
-                            const InputDecoration(labelText: 'Password'),
+                            InputDecoration(labelText: L('पासवर्ड', 'Password')),
                         validator: (value) => value != null && value.length >= 6
                             ? null
-                            : 'Password must be at least 6 characters.',
+                            : L('पासवर्ड किमान 6 अक्षरांचा हवा', 'Password must be at least 6 characters.'),
                       ),
                       if (_error != null) ...[
                         const SizedBox(height: 12),
@@ -95,7 +96,7 @@ class _SignInScreenState extends State<SignInScreen> {
                         onPressed: _busy ? null : _submit,
                         child: Padding(
                           padding: const EdgeInsets.all(12),
-                          child: Text(_busy ? 'Please wait…' : 'Sign in'),
+                          child: Text(_busy ? L('थांबा…', 'Please wait…') : L('लॉगिन करा', 'Sign in')),
                         ),
                       ),
                     ],

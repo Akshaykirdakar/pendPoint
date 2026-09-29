@@ -6,6 +6,7 @@ import '../../utils/formatters.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
+import '../../utils/lang.dart';
 
 /// Supplier Master create/edit (spec §2) — same conventions as
 /// [ProductEditScreen]: optional id = new vs edit, `_label`/`_f` field
@@ -65,41 +66,41 @@ class _SupplierEditScreenState extends State<SupplierEditScreen> {
       titleEn: edit ? 'Edit supplier' : 'New supplier',
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         if (edit) _purchaseHistory(a, widget.supplierId!),
-        _f('पुरवठादार नाव · Supplier name *', name),
+        _f(tr('पुरवठादार नाव · Supplier name *'), name),
         Row(children: [
-          Expanded(child: _f('मोबाईल · Mobile', mobile)),
+          Expanded(child: _f(tr('मोबाईल · Mobile'), mobile)),
           const SizedBox(width: 10),
-          Expanded(child: _f('पर्यायी मोबाईल · Alt. mobile', altMobile)),
+          Expanded(child: _f(tr('पर्यायी मोबाईल · Alt. mobile'), altMobile)),
         ]),
-        _f('पत्ता · Address', address),
+        _f(tr('पत्ता · Address'), address),
         Row(children: [
-          Expanded(child: _f('GSTIN (optional)', gstin)),
+          Expanded(child: _f(L('GSTIN (ऐच्छिक)', 'GSTIN (optional)'), gstin)),
           const SizedBox(width: 10),
-          Expanded(child: _f('Email', email)),
+          Expanded(child: _f(tr('ईमेल · Email'), email)),
         ]),
-        _f('सुरुवातीची शिल्लक · Opening balance', opening, num: true, prefix: '₹'),
-        _f('टिपा · Notes', notes),
+        _f(tr('सुरुवातीची शिल्लक · Opening balance'), opening, num: true, prefix: '₹'),
+        _f(tr('टिपा · Notes'), notes),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('सक्रिय · Active'),
+          title: Text(tr('सक्रिय · Active')),
           value: active,
           onChanged: busy ? null : (v) => setState(() => active = v),
         ),
         const SizedBox(height: 8),
-        BigButton.brand(busy ? 'Saving...' : 'जतन करा · Save',
+        BigButton.brand(busy ? 'Saving...' : tr('जतन करा · Save'),
             onTap: busy ? null : _save),
         if (edit) ...[
           const SizedBox(height: 10),
           BigButton.danger(
               a.supplierHasHistory(widget.supplierId!)
-                  ? '🚫 निष्क्रिय करा · Deactivate'
-                  : '🗑 Delete',
+                  ? tr('🚫 निष्क्रिय करा · Deactivate')
+                  : '🗑 ${L('हटवा', 'Delete')}',
               onTap: busy ? null : _delete),
           const SizedBox(height: 6),
           Text(
               a.supplierHasHistory(widget.supplierId!)
-                  ? 'हा पुरवठादार खरेदी/बॅचमध्ये वापरला गेला आहे — तो हटवला जाणार नाही, फक्त निष्क्रिय होईल.\n'
-                      'This supplier has purchase/batch history — it will be deactivated, not deleted.'
+                  ? tr('हा पुरवठादार खरेदी/बॅचमध्ये वापरला गेला आहे — तो हटवला जाणार नाही, फक्त निष्क्रिय होईल.\n'
+                      'This supplier has purchase/batch history — it will be deactivated, not deleted.')
                   : '',
               style: TextStyle(fontSize: 11, color: c.muted)),
         ],
@@ -120,10 +121,10 @@ class _SupplierEditScreenState extends State<SupplierEditScreen> {
       decoration: cardDecoration(context),
       padding: const EdgeInsets.all(12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('खरेदी इतिहास · Purchase history',
+        Text(tr('खरेदी इतिहास · Purchase history'),
             style: baloo(size: 13.5, weight: FontWeight.w700, color: c.ink)),
         const SizedBox(height: 4),
-        Text('${theirBatches.length} batches · $totalBags bags · ${money(totalCost)}',
+        Text('${L('${theirBatches.length} बॅच', '${theirBatches.length} batches')} · 🛍️ $totalBags · ${money(totalCost)}',
             style: TextStyle(fontSize: 12, color: c.ink2)),
       ]),
     );
@@ -131,7 +132,7 @@ class _SupplierEditScreenState extends State<SupplierEditScreen> {
 
   Future<void> _save() async {
     if (name.text.trim().isEmpty) {
-      showToast(context, 'नाव टाका · Enter supplier name');
+      showToast(context, tr('नाव टाका · Enter supplier name'));
       return;
     }
     setState(() => busy = true);
@@ -149,12 +150,12 @@ class _SupplierEditScreenState extends State<SupplierEditScreen> {
             notes: notes.text.trim(),
           );
       if (mounted) {
-        showToast(context, 'पुरवठादार जतन · Supplier saved');
+        showToast(context, tr('पुरवठादार जतन · Supplier saved'));
         Navigator.pop(context);
       }
     } catch (_) {
       if (mounted) {
-        showToast(context, 'जतन करता आले नाही · Unable to save supplier');
+        showToast(context, tr('जतन करता आले नाही · Unable to save supplier'));
       }
     } finally {
       if (mounted) setState(() => busy = false);
@@ -177,7 +178,7 @@ class _SupplierEditScreenState extends State<SupplierEditScreen> {
               child: const Text('Cancel')),
           FilledButton(
               onPressed: () => Navigator.pop(x, true),
-              child: Text(hasHistory ? 'Deactivate' : 'Delete')),
+              child: Text(hasHistory ? L('निष्क्रिय करा', 'Deactivate') : L('हटवा', 'Delete'))),
         ],
       ),
     );
@@ -188,7 +189,7 @@ class _SupplierEditScreenState extends State<SupplierEditScreen> {
       if (mounted) Navigator.pop(context);
     } catch (_) {
       if (mounted) {
-        showToast(context, 'अयशस्वी · Action failed');
+        showToast(context, tr('अयशस्वी · Action failed'));
       }
     } finally {
       if (mounted) setState(() => busy = false);

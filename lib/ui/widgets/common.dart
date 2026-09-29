@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/app_settings.dart';
 import '../../models/bill.dart';
+import '../../models/brand.dart';
 import '../../models/enums.dart';
 import '../../models/product.dart';
 import '../../services/export_file_service.dart';
@@ -11,6 +12,7 @@ import '../../state/app_state.dart';
 import '../../state/report_query.dart';
 import '../../utils/formatters.dart';
 import '../../utils/theme.dart';
+import '../../utils/lang.dart';
 
 /// Card surface used across the app.
 BoxDecoration cardDecoration(BuildContext context,
@@ -42,7 +44,7 @@ class SectionHeader extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(2, 20, 2, 9),
         child: Row(children: [
           Expanded(
-              child: Text(title,
+              child: Text(tr(title),
                   style: baloo(
                       size: 15.5,
                       weight: FontWeight.w700,
@@ -65,15 +67,15 @@ class StatusPill extends StatelessWidget {
     switch (level) {
       case StockLevel.ok:
         fg = c.good;
-        text = label ?? 'पुरेसे OK';
+        text = label ?? 'पुरेसे · OK';
         break;
       case StockLevel.low:
         fg = c.warning;
-        text = label ?? 'कमी Low';
+        text = label ?? 'कमी · Low';
         break;
       case StockLevel.out:
         fg = c.critical;
-        text = label ?? 'संपले Out';
+        text = label ?? 'संपले · Out';
         break;
     }
     return Container(
@@ -87,7 +89,7 @@ class StatusPill extends StatelessWidget {
             height: 7,
             decoration: BoxDecoration(color: fg, shape: BoxShape.circle)),
         const SizedBox(width: 5),
-        Text(text,
+        Text(tr(text),
             style: TextStyle(
                 color: fg, fontWeight: FontWeight.w700, fontSize: 11)),
       ]),
@@ -216,21 +218,21 @@ class StatTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(label.toUpperCase(),
+            Text(tr(label).toUpperCase(),
                 style: TextStyle(
                     fontSize: 11.5,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.3,
                     color: hero ? c.brandInk.withValues(alpha: 0.9) : c.muted)),
             const SizedBox(height: 6),
-            Text(value,
+            Text(tr(value),
                 style: baloo(
                     size: hero ? 30 : 24,
                     weight: FontWeight.w800,
                     color: hero ? c.brandInk : (valueColor ?? c.ink))),
             if (sub != null) ...[
               const SizedBox(height: 3),
-              Text(sub!,
+              Text(tr(sub!),
                   style: TextStyle(
                       fontSize: 11.5,
                       fontWeight: FontWeight.w600,
@@ -284,6 +286,13 @@ class BigButton extends StatelessWidget {
         fg = c.critical;
         break;
     }
+    // Disabled never looks tappable, whatever the colour theme: flat grey
+    // with muted text.
+    if (onTap == null) {
+      bg = c.ink.withValues(alpha: 0.07);
+      fg = c.muted;
+      border = Border.all(color: c.line);
+    }
     return Material(
       color: bg,
       borderRadius: BorderRadius.circular(13),
@@ -291,11 +300,15 @@ class BigButton extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(13),
         child: Container(
-          height: 52,
-          alignment: Alignment.center,
+          // At least 52 high; grows (only) as tall as a large font size or
+          // a two-line label needs — never stretches to fill its parent.
+          constraints: const BoxConstraints(minHeight: 52),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
           decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(13), border: border),
-          child: Row(
+          child: Center(
+            heightFactor: 1,
+            child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -304,13 +317,14 @@ class BigButton extends StatelessWidget {
                   const SizedBox(width: 8)
                 ],
                 Flexible(
-                    child: Text(label,
+                    child: Text(tr(label),
                         textAlign: TextAlign.center,
                         style: TextStyle(
                             color: fg,
                             fontWeight: FontWeight.w700,
                             fontSize: 15))),
               ]),
+          ),
         ),
       ),
     );
@@ -318,6 +332,78 @@ class BigButton extends StatelessWidget {
 }
 
 enum _Kind { primary, brand, ghost, danger }
+
+/// A brand's photo/logo, or — with no photo (or one that can't load) — its
+/// first letter on a tinted square. Greyed when the brand is inactive.
+class BrandLogo extends StatelessWidget {
+  final Brand brand;
+  final double size;
+  const BrandLogo(this.brand, {this.size = 40, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final letter = Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+          color: (brand.active ? c.brand : c.muted).withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(size * 0.25)),
+      child: Text(
+          (brand.name.isNotEmpty ? brand.name : brand.nameMr)
+              .characters
+              .first
+              .toUpperCase(),
+          style: baloo(
+              size: size * 0.45,
+              weight: FontWeight.w800,
+              color: brand.active ? c.brand : c.muted)),
+    );
+    final url = brand.photoUrl;
+    if (url == null || !url.startsWith('http')) return letter;
+    final img = ClipRRect(
+      borderRadius: BorderRadius.circular(size * 0.25),
+      child: Image.network(url,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => letter),
+    );
+    return brand.active
+        ? img
+        : Opacity(opacity: 0.45, child: img);
+  }
+}
+
+/// The standard card look ([cardDecoration]: background, border, rounded
+/// corners, shadow) for content with ListTile / SwitchListTile rows. The
+/// rows paint their ink on this card's own transparent [Material] — clipped
+/// to the rounded corners — so ripples and selection stay visible and
+/// Flutter's "ListTile background color or ink splashes may be invisible"
+/// check is satisfied.
+class InkCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final double radius;
+  const InkCard(
+      {required this.child,
+      this.padding = EdgeInsets.zero,
+      this.radius = 16,
+      super.key});
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+        decoration: cardDecoration(context, radius: radius),
+        child: Material(
+          type: MaterialType.transparency,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(radius)),
+          clipBehavior: Clip.antiAlias,
+          child: Padding(padding: padding, child: child),
+        ),
+      );
+}
 
 /// A simple list row card wrapper.
 class CardList extends StatelessWidget {
@@ -358,7 +444,7 @@ class HistoryLoadingNote extends StatelessWidget {
             height: 14,
             child: CircularProgressIndicator(strokeWidth: 2, color: c.muted)),
         const SizedBox(width: 9),
-        Text('इतिहास लोड होत आहे... · Loading history...',
+        Text(tr('इतिहास लोड होत आहे... · Loading history...'),
             style: TextStyle(fontSize: 12.5, color: c.muted)),
       ]),
     );
@@ -376,7 +462,7 @@ class EmptyState extends StatelessWidget {
         child: Column(children: [
           Text(emoji, style: const TextStyle(fontSize: 38)),
           const SizedBox(height: 8),
-          Text(text,
+          Text(tr(text),
               textAlign: TextAlign.center,
               style: TextStyle(color: context.c.muted, fontSize: 13.5)),
         ]),
@@ -419,7 +505,7 @@ void showExportSheet(
                     decoration: BoxDecoration(
                         color: context.c.line,
                         borderRadius: BorderRadius.circular(9)))),
-            Text('रिपोर्ट एक्सपोर्ट · Export Report',
+            Text(tr('रिपोर्ट एक्सपोर्ट · Export Report'),
                 style: baloo(
                     size: 18, weight: FontWeight.w700, color: context.c.ink)),
             const SizedBox(height: 14),
@@ -459,7 +545,7 @@ void showExportSheet(
             ),
             if (onShareSummary != null) ...[
               const SizedBox(height: 14),
-              BigButton.ghost('🔗 सारांश शेअर करा · Share summary', onTap: () {
+              BigButton.ghost(tr('🔗 सारांश शेअर करा · Share summary'), onTap: () {
                 Navigator.pop(ctx);
                 onShareSummary();
               }),
@@ -514,7 +600,7 @@ class _ExportFormatRowState extends State<_ExportFormatRow> {
 
   @override
   Widget build(BuildContext context) {
-    final label = _busy ? 'तयार करत आहे... · Preparing...' : widget.downloadLabel;
+    final label = _busy ? tr('तयार करत आहे... · Preparing...') : widget.downloadLabel;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
         Expanded(
@@ -566,7 +652,7 @@ void showExportOutcome(BuildContext context, ExportResult result) {
         ..clearSnackBars()
         ..showSnackBar(SnackBar(
           content: Text(loc == null
-              ? 'अहवाल जतन झाला · Report saved successfully'
+              ? tr('अहवाल जतन झाला · Report saved successfully')
               : 'अहवाल जतन झाला · Report saved to:\n$loc'),
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 4),
@@ -577,7 +663,7 @@ void showExportOutcome(BuildContext context, ExportResult result) {
       break;
     case ExportOutcome.failed:
       debugPrint('Export failed: ${result.error}');
-      showToast(context, 'अहवाल सेव्ह करता आला नाही · Could not save report');
+      showToast(context, tr('अहवाल सेव्ह करता आला नाही · Could not save report'));
       break;
   }
 }
@@ -597,7 +683,7 @@ class InfoTooltip extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     return Tooltip(
-      message: text,
+      message: tr(text),
       triggerMode: TooltipTriggerMode.longPress,
       child: Semantics(
         label: text,
@@ -661,10 +747,15 @@ class PaymentMixBar extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 11),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Text(label,
-              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
-          const Spacer(),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(
+            child: Text(tr(label),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 12.5, fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(width: 8),
           Text('${money(value)} · ${(pct * 100).toStringAsFixed(0)}%',
               style: baloo(size: 13, weight: FontWeight.w700, color: c.ink))
         ]),
@@ -707,8 +798,8 @@ class TransactionTile extends StatelessWidget {
     final c = context.c;
     final modes = bill.payments.map((p) => _modeLabel(p.mode)).toSet().join(' + ');
     final composition = [
-      if (bags > 0) '$bags गोणी Bags',
-      if (looseKg > 0) '${kg(looseKg)} सुटे Loose',
+      if (bags > 0) '🛍️ $bags ${L('गोणी', 'bags')}',
+      if (looseKg > 0) '${kg(looseKg)} ${L('सुटे', 'loose')}',
     ].join(' + ');
     return InkWell(
       onTap: onTap,
@@ -720,7 +811,7 @@ class TransactionTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                Text('बिल #${bill.billNumber}',
+                Text('${L('बिल', 'Bill')} #${bill.billNumber}',
                     style: baloo(size: 13.5, weight: FontWeight.w700, color: c.ink)),
                 Text(
                     bill.customerName.isEmpty
@@ -731,7 +822,7 @@ class TransactionTile extends StatelessWidget {
                   Text(composition, style: TextStyle(fontSize: 11.5, color: c.muted)),
                 if (bill.creditAmount > 0)
                   Text(
-                      'भरले Paid ${money(bill.total - bill.creditAmount)} · बाकी Outstanding ${money(bill.creditAmount)}',
+                      '${L('भरले', 'Paid')} ${money(bill.total - bill.creditAmount)} · ${L('बाकी', 'Due')} ${money(bill.creditAmount)}',
                       style: TextStyle(
                           fontSize: 11, color: c.serious, fontWeight: FontWeight.w600)),
               ])),
@@ -750,12 +841,69 @@ class TransactionTile extends StatelessWidget {
     );
   }
 
-  String _modeLabel(PayMode m) => switch (m) {
-        PayMode.cash => 'Cash',
-        PayMode.upi => 'UPI',
-        PayMode.credit => 'Credit',
-      };
+  String _modeLabel(PayMode m) => payModeLabel(m);
 }
+
+/// Shows a stock-log / khata note in the shop's language. Notes the app
+/// writes itself ("cash", "bill #1009", "void #1009", "purchase #3 · bill
+/// INV-9", "auto on sale"…) are translated for display only — the stored
+/// note is never changed. Anything a person typed is shown exactly as typed.
+String noteLabel(String note) {
+  final n = note.trim();
+  RegExpMatch? m(String p) => RegExp(p).firstMatch(n);
+  for (final mode in PayMode.values) {
+    if (n == mode.name) return payModeLabel(mode);
+  }
+  var x = m(r'^bill #(\d+)(?: rev (\d+))?$');
+  if (x != null) {
+    final rev = x.group(2) == null ? '' : ' R${x.group(2)}';
+    return L('बिल #${x.group(1)}$rev', 'Bill #${x.group(1)}$rev');
+  }
+  x = m(r'^void #(\d+)$');
+  if (x != null) return L('रद्द बिल #${x.group(1)}', 'Void bill #${x.group(1)}');
+  x = m(r'^edit #(\d+)(?: rev (\d+)| \(old\))?$');
+  if (x != null) {
+    final rev = x.group(2) == null ? '' : ' R${x.group(2)}';
+    return L('दुरुस्त बिल #${x.group(1)}$rev', 'Edited bill #${x.group(1)}$rev');
+  }
+  x = m(r'^partial return · bill #(\d+)$');
+  if (x != null) {
+    return L('आंशिक परतावा · बिल #${x.group(1)}', 'Partial return · bill #${x.group(1)}');
+  }
+  x = m(r'^purchase #(\d+)( rev \d+)?( edited| void)?(?: · bill (.+))?$');
+  if (x != null) {
+    final parts = <String>[
+      L('खरेदी #${x.group(1)}', 'Purchase #${x.group(1)}') +
+          (x.group(2) == null ? '' : ' R${x.group(2)!.replaceAll(RegExp(r'[^0-9]'), '')}'),
+      if (x.group(3) == ' edited') L('दुरुस्त', 'edited'),
+      if (x.group(3) == ' void') L('रद्द', 'void'),
+      if (x.group(4) != null) '${L('बिल', 'bill')} ${x.group(4)}',
+    ];
+    return parts.join(' · ');
+  }
+  switch (n) {
+    case 'auto on sale':
+      return L('विक्रीसाठी उघडली', 'opened for sale');
+    case 'manual':
+      return L('हाताने', 'manual');
+    case 'adjustment':
+      return L('समायोजन', 'adjustment');
+  }
+  x = m(r'^(to|from) branch (.+)$');
+  if (x != null) {
+    return x.group(1) == 'to'
+        ? L('शाखेकडे पाठवले', 'sent to branch')
+        : L('शाखेतून आले', 'received from branch');
+  }
+  return note;
+}
+
+/// Payment mode in the shop's language (रोख / UPI / उधार).
+String payModeLabel(PayMode m) => switch (m) {
+      PayMode.cash => tr('रोख · Cash'),
+      PayMode.upi => 'UPI',
+      PayMode.credit => tr('उधार · Credit'),
+    };
 
 /// A simple day-by-day revenue bar chart — no charting dependency, just
 /// proportional-height bars in the same visual language as [PaymentMixBar]'s
@@ -779,7 +927,7 @@ class RevenueTrendChart extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Tooltip(
-                message: '${dayShort(p.day)}\n${money(p.revenue)} · ${p.billCount} bills',
+                message: '${dayShort(p.day)}\n${money(p.revenue)} · ${L('${p.billCount} बिले', '${p.billCount} bills')}',
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Container(
                     width: 22,
@@ -805,7 +953,7 @@ void showToast(BuildContext context, String msg) {
   ScaffoldMessenger.of(context)
     ..clearSnackBars()
     ..showSnackBar(SnackBar(
-      content: Text(msg, style: const TextStyle(fontWeight: FontWeight.w600)),
+      content: Text(tr(msg), style: const TextStyle(fontWeight: FontWeight.w600)),
       behavior: SnackBarBehavior.floating,
       duration: const Duration(seconds: 2),
       backgroundColor: context.c.ink,

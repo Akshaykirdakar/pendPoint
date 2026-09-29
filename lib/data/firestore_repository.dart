@@ -23,9 +23,13 @@
 //                                             scoped, with expiry)
 //   stockLogs/{logId}
 //   bills/{billId}  +  bills/{billId}/billItems/{itemId}   (subcollection)
+//   purchases/{purchaseId} + purchases/{purchaseId}/purchaseItems/{itemId}
 //   customers/{customerId}  +  customers/{customerId}/ledgerEntries/{entryId}
+//                                            (customers = sales parties,
+//                                             suppliers = purchase parties;
+//                                             a "both" party shares one id)
 //   staff/{staffId}
-//   meta/counters  { bill: <int> }
+//   meta/counters  { bill: <int>, purchase: <int> }
 //   meta/settings
 //
 // Offline: enable Firestore persistence (Settings(persistenceEnabled: true))
@@ -34,6 +38,7 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/app_settings.dart';
@@ -44,16 +49,53 @@ import '../models/brand.dart';
 import '../models/customer.dart';
 import '../models/enums.dart';
 import '../models/product.dart';
+import '../models/purchase.dart';
 import '../models/staff.dart';
 import '../models/stock.dart';
 import '../models/stock_log.dart';
 import '../models/supplier.dart';
 import 'repository.dart';
+import 'stock_commit.dart';
 
 class FirestoreRepository implements Repository {
   final FirebaseFirestore db;
-  FirestoreRepository({FirebaseFirestore? firestore})
-      : db = firestore ?? FirebaseFirestore.instance;
+  final FirebaseStorage? _storage;
+  FirestoreRepository({FirebaseFirestore? firestore, FirebaseStorage? storage})
+      : db = firestore ?? FirebaseFirestore.instance,
+        _storage = storage;
+
+  FirebaseStorage get storage => _storage ?? FirebaseStorage.instance;
+
+  // ---- purchase bill photos (Firebase Storage; Firestore keeps the ref) ----
+  @override
+  Future<StoredPhoto> uploadPurchaseBillPhoto(
+      String purchaseId, Uint8List bytes, String extension) async {
+    final path = purchaseBillPhotoPath(purchaseId, extension);
+    final ext = path.split('.').last;
+    final ref = storage.ref(path);
+    await ref.putData(bytes,
+        SettableMetadata(contentType: 'image/${ext == 'jpg' ? 'jpeg' : ext}'));
+    return StoredPhoto(path, await ref.getDownloadURL());
+  }
+
+  @override
+  Future<Uint8List?> loadPurchaseBillPhoto(String path) async {
+    try {
+      return await storage.ref(path).getData(10 * 1024 * 1024);
+    } on FirebaseException catch (e) {
+      if (e.code == 'object-not-found') return null;
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> deletePurchaseBillPhoto(String path) async {
+    try {
+      await storage.ref(path).delete();
+    } on FirebaseException catch (e) {
+      if (e.code != 'object-not-found') rethrow;
+    }
+  }
 
   @override
   String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
@@ -153,6 +195,14 @@ class FirestoreRepository implements Repository {
     final batchesSnap = await db.collection('batches').get();
     debugPrint('[pend] fs: batches = ${batchesSnap.size}');
 
+    debugPrint('[pend] fs: reading purchases...');
+    final purchasesSnap = await db
+        .collection('purchases')
+        .orderBy('createdAt', descending: true)
+        .limit(500)
+        .get();
+    debugPrint('[pend] fs: purchases = ${purchasesSnap.size}');
+
     final bills = <Bill>[];
     for (final b in billsSnap.docs) {
       final itemsSnap = await b.reference.collection('billItems').get();
@@ -171,6 +221,16 @@ class FirestoreRepository implements Repository {
       customers.add(Customer.fromMap(c.id, c.data(), ledger));
     }
 
+    final purchases = <Purchase>[];
+    for (final p in purchasesSnap.docs) {
+      final itemDocs = (await p.reference.collection('purchaseItems').get())
+          .docs
+          .toList()
+        ..sort((a, b) => a.id.compareTo(b.id));
+      final items = [for (final d in itemDocs) PurchaseItem.fromMap(d.data())];
+      purchases.add(Purchase.fromMap(p.id, p.data(), items));
+    }
+
     final logs =
         logsSnap.docs.map((d) => StockLog.fromMap(d.id, d.data())).toList();
     final batches =
@@ -180,7 +240,11 @@ class FirestoreRepository implements Repository {
         'logs=${logs.length}, batches=${batches.length}');
 
     return HistorySnapshot(
-        logs: logs, bills: bills, customers: customers, batches: batches);
+        logs: logs,
+        bills: bills,
+        customers: customers,
+        batches: batches,
+        purchases: purchases);
   }
 
   @override
@@ -196,10 +260,210 @@ class FirestoreRepository implements Repository {
   }
 
   @override
+  Future<int> nextPurchaseNumber() async {
+    final ref = db.doc('meta/counters');
+    return db.runTransaction<int>((tx) async {
+      final snap = await tx.get(ref);
+      final next = ((snap.data()?['purchase'] ?? 0) as int) + 1;
+      tx.set(ref, {'purchase': next}, SetOptions(merge: true));
+      return next;
+    });
+  }
+
+  /// See [Repository.commitStock]. One Firestore transaction: every read
+  /// happens first (batches, legacy stock, customers, bills/purchases being
+  /// patched), then validation against those fresh values, then all writes.
+  /// Firestore retries the transaction if any document it read changes
+  /// before it commits, so two counters selling the same last bag cannot
+  /// both succeed.
+  @override
+  Future<void> commitStock(StockCommit c) async {
+    await db.runTransaction<void>((tx) async {
+      // ---- reads ----
+      final batchSnaps = <String, DocumentSnapshot<Map<String, dynamic>>>{};
+      for (final d in c.batches.values) {
+        if (d.create != null) continue;
+        batchSnaps[d.batchId] =
+            await tx.get(db.collection('batches').doc(d.batchId));
+      }
+      final legacySnaps = <String, DocumentSnapshot<Map<String, dynamic>>>{};
+      for (final pid in c.legacyStock.keys) {
+        legacySnaps[pid] = await tx.get(db.collection('stock').doc(pid));
+      }
+      final customerSnaps = <String, DocumentSnapshot<Map<String, dynamic>>>{};
+      for (final l in c.ledger) {
+        if (customerSnaps.containsKey(l.customerId)) continue;
+        customerSnaps[l.customerId] =
+            await tx.get(db.collection('customers').doc(l.customerId));
+      }
+      final billSnaps = <String, DocumentSnapshot<Map<String, dynamic>>>{};
+      for (final p in c.billPatches) {
+        billSnaps[p.id] = await tx.get(db.collection('bills').doc(p.id));
+      }
+      final purchaseSnaps = <String, DocumentSnapshot<Map<String, dynamic>>>{};
+      for (final p in c.purchasePatches) {
+        purchaseSnaps[p.id] =
+            await tx.get(db.collection('purchases').doc(p.id));
+      }
+
+      // ---- validate against the fresh values ----
+      final batchWrites = <String, Map<String, dynamic>>{};
+      for (final d in c.batches.values) {
+        final Batch current;
+        if (d.create != null) {
+          current = Batch.fromMap(d.batchId, {
+            ...d.create!.toMap(),
+            'bagsReceived': 0,
+            'bagsAvailable': 0,
+            'looseKgAvailable': 0,
+            'bagsSold': 0,
+            'looseKgSold': 0,
+            'bagsReturned': 0,
+            'looseKgReturned': 0,
+          });
+        } else {
+          final snap = batchSnaps[d.batchId]!;
+          if (!snap.exists) {
+            throw StockCommitException(
+                'बॅच सापडली नाही · Batch ${d.batchId} no longer exists');
+          }
+          current = Batch.fromMap(snap.id, snap.data()!);
+        }
+        d.applyTo(current, c.at);
+        if (current.bagsAvailable < 0 || current.looseKgAvailable < -0.001) {
+          throw StockCommitException(
+              'अपुरा साठा · Stock changed on another device (batch ${current.batchNo}). Nothing was saved — please retry.');
+        }
+        batchWrites[d.batchId] = current.toMap();
+      }
+      c.legacyStock.forEach((pid, d) {
+        final m = legacySnaps[pid]!.data() ?? const <String, dynamic>{};
+        final bags = ((m['bagsRemaining'] ?? 0) as int) + d.bags;
+        final kg = (m['looseKgRemaining'] ?? 0).toDouble() + d.looseKg;
+        if (bags < 0 || kg < -0.001) {
+          throw const StockCommitException(
+              'अपुरा साठा · Stock changed on another device. Nothing was saved — please retry.');
+        }
+      });
+      void checkStatus(StatusPatch p, DocumentSnapshot<Map<String, dynamic>> s,
+          String what) {
+        final data = s.data();
+        if (data == null) {
+          throw StockCommitException('$what ${p.id} not found');
+        }
+        if (BillStatusX.fromId(data['status'] as String?) != p.expected ||
+            data['replacedByBillId'] != null ||
+            data['replacedByPurchaseId'] != null) {
+          throw StockCommitException(
+              '$what already changed on another device — nothing was saved');
+        }
+      }
+
+      for (final p in c.billPatches) {
+        checkStatus(p, billSnaps[p.id]!, 'बिल · Bill');
+      }
+      for (final p in c.purchasePatches) {
+        checkStatus(p, purchaseSnaps[p.id]!, 'खरेदी · Purchase');
+      }
+
+      // ---- writes ----
+      batchWrites.forEach(
+          (id, data) => tx.set(db.collection('batches').doc(id), data));
+      c.rollupDeltas.forEach((pid, d) {
+        tx.set(
+            db.collection('stock').doc(pid),
+            {
+              'bagsRemaining': FieldValue.increment(d.$1),
+              'looseKgRemaining': FieldValue.increment(d.$2),
+            },
+            SetOptions(merge: true));
+      });
+      for (final l in c.logs) {
+        tx.set(db.collection('stockLogs').doc(l.id), l.toMap());
+      }
+      for (final b in c.newBills) {
+        final ref = db.collection('bills').doc(b.id);
+        tx.set(ref, b.toMap());
+        for (var i = 0; i < b.items.length; i++) {
+          tx.set(ref.collection('billItems').doc('$i'), b.items[i].toMap());
+        }
+      }
+      for (final p in c.billPatches) {
+        tx.update(db.collection('bills').doc(p.id), {
+          'status': p.status.id,
+          if (p.replacedById != null) 'replacedByBillId': p.replacedById,
+          'statusChangedAt': c.at.toIso8601String(),
+        });
+      }
+      for (final p in c.newPurchases) {
+        final ref = db.collection('purchases').doc(p.id);
+        tx.set(ref, p.toMap());
+        for (var i = 0; i < p.items.length; i++) {
+          tx.set(
+              ref.collection('purchaseItems').doc(i.toString().padLeft(3, '0')),
+              p.items[i].toMap());
+        }
+      }
+      for (final p in c.purchasePatches) {
+        tx.update(db.collection('purchases').doc(p.id), {
+          'status': p.status.id,
+          if (p.replacedById != null) 'replacedByPurchaseId': p.replacedById,
+          'statusChangedAt': c.at.toIso8601String(),
+        });
+      }
+      final outstanding = <String, double>{
+        for (final e in customerSnaps.entries)
+          e.key: (e.value.data()?['outstandingBalance'] ?? 0).toDouble(),
+      };
+      for (final l in c.ledger) {
+        final ref = db.collection('customers').doc(l.customerId);
+        tx.set(ref.collection('ledgerEntries').doc(), l.entry.toMap());
+        final next = outstanding[l.customerId]! + l.outstandingDelta;
+        outstanding[l.customerId] = next < 0 ? 0 : next;
+      }
+      outstanding.forEach((id, v) => tx.update(
+          db.collection('customers').doc(id), {'outstandingBalance': v}));
+    });
+  }
+
+  @override
   Future<void> upsertBrand(Brand brand) => db
       .collection('brands')
       .doc(brand.id)
       .set(brand.toMap(), SetOptions(merge: true));
+
+  @override
+  Future<void> deleteBrand(String brandId,
+      {List<String> productIds = const []}) async {
+    final batch = db.batch();
+    for (final id in productIds) {
+      batch.delete(db.collection('products').doc(id));
+      batch.delete(db.collection('stock').doc(id));
+    }
+    batch.delete(db.collection('brands').doc(brandId));
+    await batch.commit();
+  }
+
+  @override
+  Future<String> uploadBrandPhoto(
+      String brandId, Uint8List bytes, String extension) async {
+    final ext = extension.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
+    final safe = const {'jpg', 'jpeg', 'png', 'webp'}.contains(ext) ? ext : 'jpg';
+    final ref = storage
+        .ref('brands/$brandId/logo_${DateTime.now().millisecondsSinceEpoch}.$safe');
+    await ref.putData(bytes,
+        SettableMetadata(contentType: 'image/${safe == 'jpg' ? 'jpeg' : safe}'));
+    return ref.getDownloadURL();
+  }
+
+  @override
+  Future<void> deleteBrandPhoto(String url) async {
+    try {
+      await storage.refFromURL(url).delete();
+    } on FirebaseException catch (e) {
+      if (e.code != 'object-not-found') rethrow;
+    }
+  }
 
   @override
   Future<void> upsertStaff(Staff staff) => db
@@ -253,23 +517,6 @@ class FirestoreRepository implements Repository {
   @override
   Future<void> addStockLog(StockLog log) =>
       db.collection('stockLogs').doc(log.id).set(log.toMap());
-
-  @override
-  Future<void> saveBill(Bill bill) async {
-    // Deduct stock + write the bill atomically in one batch.
-    final batch = db.batch();
-    final billRef = db.collection('bills').doc(bill.id);
-    batch.set(billRef, bill.toMap());
-    for (var i = 0; i < bill.items.length; i++) {
-      batch.set(
-          billRef.collection('billItems').doc('$i'), bill.items[i].toMap());
-    }
-    await batch.commit();
-  }
-
-  @override
-  Future<void> updateBillStatus(String billId, BillStatus status) =>
-      db.collection('bills').doc(billId).update({'status': status.id});
 
   @override
   Future<void> upsertCustomer(Customer customer) => db

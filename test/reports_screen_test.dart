@@ -95,7 +95,7 @@ void main() {
     final beforeRevenue = find.byType(ReportsScreen);
     expect(beforeRevenue, findsOneWidget);
 
-    await tester.tap(find.text('सर्व · All Brands'));
+    await tester.tap(find.text('सर्व ब्रँड · All Brands'));
     await tester.pumpAndSettle();
     // Pick the first real brand option (Godrej / गोदरेज from the sample seed).
     final brandOption = find.textContaining('गोदरेज').last;
@@ -122,7 +122,7 @@ void main() {
       (tester) async {
     await _pump(tester);
 
-    final cashRow = find.textContaining('रोख Cash').first;
+    final cashRow = find.textContaining('रोख · Cash').first;
     await tester.ensureVisible(cashRow);
     await tester.tap(cashRow);
     await tester.pumpAndSettle();
@@ -146,7 +146,7 @@ void main() {
       (tester) async {
     await _pump(tester);
 
-    await tester.tap(find.text('एक्सपोर्ट'));
+    await tester.tap(find.text('एक्सपोर्ट · Export'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('PDF डाउनलोड करा'), findsOneWidget);

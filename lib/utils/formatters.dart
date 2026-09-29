@@ -24,3 +24,4 @@ String dateTimeShort(DateTime d) =>
 String dayShort(DateTime d) => _dayFmt.format(d);
 String dayFull(DateTime d) => _dayFullFmt.format(d);
 String weekdayShort(DateTime d) => DateFormat('EEE').format(d).substring(0, 2);
+String timeShort(DateTime d) => _timeFmt.format(d);

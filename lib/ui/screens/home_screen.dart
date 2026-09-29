@@ -8,11 +8,17 @@ import '../../utils/formatters.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
+import '../widgets/tiles.dart';
 import 'alerts_screen.dart';
+import 'bag_stock_screen.dart';
+import 'khata_screen.dart';
+import 'party_master_screen.dart';
 import 'product_detail_screen.dart';
+import 'purchase_entry_screen.dart';
 import 'reports_screen.dart';
-import 'scan_screen.dart';
-import 'stock_in_screen.dart';
+import 'returns_screen.dart';
+import 'sales_entry_screen.dart';
+import '../../utils/lang.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -64,45 +70,84 @@ class HomeScreen extends StatelessWidget {
             onTap: () => _push(context, const AlertsScreen()))
       ],
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (alertCount > 0) ...[
-          _alertSummaryCard(context, expired.length, critical.length + nearExpiry.length,
-              lowStockOnly.length, outOfStock.length),
-          const SizedBox(height: 11),
-        ],
-        // hero + quick actions
+        // Today's sale in one big number; counts as icons, not words.
         StatTile(
             hero: true,
-            label: 'आजची विक्री · Today',
+            label: tr('आजची विक्री · Today'),
             value: money(rev),
-            sub: '${today.length} bills · $bagsSold bags · ${kg(kgSold)}'),
-        const SizedBox(height: 11),
-        Row(children: [
-          Expanded(
-              child: StatTile(
-                  label: '＋ नवीन बिल',
-                  value: 'New Sale',
-                  sub: 'Scan or search',
-                  valueColor: c.accent,
-                  onTap: () => _push(context, const ScanScreen()))),
-          const SizedBox(width: 11),
-          Expanded(
-              child: StatTile(
-                  label: '📦 साठा भरा',
-                  value: 'Stock in',
-                  sub: 'Add purchase',
-                  valueColor: c.brand,
-                  onTap: () => _push(context, const StockInScreen()))),
+            sub: '🧾 ${today.length}    🛍️ $bagsSold    ⚖️ ${kg(kgSold)}'),
+        const SizedBox(height: 14),
+        // Everything the counter does daily — one big picture each.
+        TileGrid([
+          BigTile(
+              key: const ValueKey('home-new-bill'),
+              icon: Icons.point_of_sale_rounded,
+              mr: 'नवीन बिल',
+              en: 'New Sale',
+              color: c.accent,
+              onTap: () => _push(context, const SalesEntryScreen())),
+          BigTile(
+              key: const ValueKey('home-purchase'),
+              icon: Icons.local_shipping_rounded,
+              mr: 'खरेदी',
+              en: 'Purchase',
+              color: c.brand,
+              onTap: () => _push(context, const PurchaseEntryScreen())),
+          BigTile(
+              icon: Icons.inventory_rounded,
+              mr: 'गोणी साठा',
+              en: 'Bag stock',
+              color: c.s1,
+              onTap: () => _push(context, const BagStockScreen())),
+          BigTile(
+              icon: Icons.receipt_long_rounded,
+              mr: 'बिले',
+              en: 'Bills',
+              color: c.s2,
+              onTap: () => _push(context, const ReturnsScreen())),
+          BigTile(
+              icon: Icons.menu_book_rounded,
+              mr: 'उधार',
+              en: 'Credit',
+              color: c.serious,
+              badge: app.totalOutstanding > 0 ? money(app.totalOutstanding) : null,
+              badgeColor: c.serious,
+              onTap: () => _push(context, const KhataScreen())),
+          BigTile(
+              icon: Icons.groups_rounded,
+              mr: 'पार्टी',
+              en: 'Parties',
+              color: c.s3,
+              onTap: () => _push(context, const PartyMasterScreen())),
+          BigTile(
+              icon: Icons.notifications_active_rounded,
+              mr: 'सूचना',
+              en: 'Alerts',
+              color: c.critical,
+              badge: alertCount > 0 ? '$alertCount' : null,
+              onTap: () => _push(context, const AlertsScreen())),
+          BigTile(
+              icon: Icons.bar_chart_rounded,
+              mr: 'अहवाल',
+              en: 'Reports',
+              color: c.ink2,
+              onTap: () => _push(context, const ReportsScreen())),
         ]),
+        if (alertCount > 0) ...[
+          const SizedBox(height: 14),
+          _alertSummaryCard(context, expired.length, critical.length + nearExpiry.length,
+              lowStockOnly.length, outOfStock.length),
+        ],
 
-        SectionHeader('⚠️ कमी साठा · Low stock',
+        SectionHeader(tr('⚠️ कमी साठा · Low stock'),
             action: TextButton(
                 onPressed: () => _push(context, const AlertsScreen()),
-                child: const Text('सर्व'))),
+                child: Text(L('सर्व', 'All')))),
         if (low.isEmpty)
           Container(
               decoration: cardDecoration(context),
-              child: const EmptyState(
-                  '✅', 'सर्व साठा पुरेसा आहे\nAll stock healthy'))
+              child: EmptyState(
+                  '✅', tr('सर्व साठा पुरेसा आहे\nAll stock healthy')))
         else
           CardList([
             for (final p in low.take(4))
@@ -122,7 +167,7 @@ class HomeScreen extends StatelessWidget {
                             ProductName(p),
                             const SizedBox(height: 2),
                             Text(
-                                '${app.stockOf(p.id).bags} bags · ${kg(app.stockOf(p.id).looseKg)} loose',
+                                '🛍️ ${app.stockOf(p.id).bags}    ⚖️ ${kg(app.stockOf(p.id).looseKg)}',
                                 style: TextStyle(fontSize: 12, color: c.ink2)),
                           ]),
                     ),
@@ -132,7 +177,7 @@ class HomeScreen extends StatelessWidget {
               ),
           ]),
 
-        SectionHeader('📈 ७ दिवस विक्री · Last 7 days'),
+        SectionHeader(tr('📈 ७ दिवस विक्री · Last 7 days')),
         Container(
           decoration: cardDecoration(context),
           padding: const EdgeInsets.all(14),
@@ -164,23 +209,6 @@ class HomeScreen extends StatelessWidget {
           ),
         ),
 
-        const SizedBox(height: 14),
-        Row(children: [
-          Expanded(
-              child: StatTile(
-                  label: '📒 उधार बाकी',
-                  value: money(app.totalOutstanding),
-                  sub:
-                      '${app.customers.where((x) => x.outstanding > 0).length} owe',
-                  valueColor: c.serious)),
-          const SizedBox(width: 11),
-          Expanded(
-              child: StatTile(
-                  label: '📊 अहवाल',
-                  value: 'Reports',
-                  sub: 'Sales & discounts',
-                  onTap: () => _push(context, const ReportsScreen()))),
-        ]),
       ]),
     );
   }
@@ -224,13 +252,13 @@ class HomeScreen extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Padding(
           padding: const EdgeInsets.only(top: 6, bottom: 2),
-          child: Text('🔔 इन्व्हेंटरी सूचना · Inventory Alerts',
+          child: Text(tr('🔔 इन्व्हेंटरी सूचना · Inventory Alerts'),
               style: baloo(size: 13.5, weight: FontWeight.w700, color: c.ink)),
         ),
-        chip('🔴', 'एक्सपायर बॅचेस · Expired batches', expiredN, c.critical),
-        chip('🟠', 'लवकर एक्सपायर · Expiring soon', expiringN, c.warning),
-        chip('⚠️', 'कमी साठा · Low stock products', lowN, c.warning),
-        chip('🔴', 'संपलेला साठा · Out of stock', outN, c.critical),
+        chip('🔴', tr('एक्सपायर बॅचेस · Expired batches'), expiredN, c.critical),
+        chip('🟠', tr('लवकर एक्सपायर · Expiring soon'), expiringN, c.warning),
+        chip('⚠️', tr('कमी साठा · Low stock products'), lowN, c.warning),
+        chip('🔴', tr('संपलेला साठा · Out of stock'), outN, c.critical),
       ]),
     );
   }

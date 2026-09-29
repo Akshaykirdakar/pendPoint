@@ -7,6 +7,7 @@ import '../../utils/formatters.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
+import '../../utils/lang.dart';
 
 class HistoryScreen extends StatelessWidget {
   const HistoryScreen({super.key});
@@ -18,16 +19,16 @@ class HistoryScreen extends StatelessWidget {
     final logs = [...app.logs]..sort((a, b) => b.at.compareTo(a.at));
 
     String label(StockLogType t) => switch (t) {
-          StockLogType.purchase => 'खरेदी Purchase',
-          StockLogType.sale => 'विक्री Sale',
-          StockLogType.bagOpened => 'गोणी उघडली Bag opened',
-          StockLogType.adjustment => 'समायोजन Adjust',
-          StockLogType.saleVoid => 'रद्द Void',
-          StockLogType.returned => 'परतावा Return',
-          StockLogType.transferIn => 'हस्तांतरण आले Transfer in',
-          StockLogType.transferOut => 'हस्तांतरण गेले Transfer out',
-          StockLogType.purchaseReturn => 'खरेदी परतावा Purchase return',
-          StockLogType.expiryWriteOff => 'मुदत संपली Write-off',
+          StockLogType.purchase => tr('खरेदी · Purchase'),
+          StockLogType.sale => tr('विक्री · Sale'),
+          StockLogType.bagOpened => tr('गोणी उघडली · Bag opened'),
+          StockLogType.adjustment => tr('समायोजन · Adjust'),
+          StockLogType.saleVoid => tr('रद्द · Void'),
+          StockLogType.returned => tr('परतावा · Return'),
+          StockLogType.transferIn => tr('हस्तांतरण आले · Transfer in'),
+          StockLogType.transferOut => tr('हस्तांतरण गेले · Transfer out'),
+          StockLogType.purchaseReturn => tr('खरेदी परतावा · Purchase return'),
+          StockLogType.expiryWriteOff => tr('मुदत संपली · Write-off'),
         };
     Color color(StockLogType t) => switch (t) {
           StockLogType.purchase => c.good,
@@ -48,7 +49,7 @@ class HistoryScreen extends StatelessWidget {
       body: (app.historyLoading && logs.isEmpty)
           ? const HistoryLoadingNote()
           : logs.isEmpty
-              ? const EmptyState('🕓', 'कोणतीही नोंद नाही · No history')
+              ? EmptyState('🕓', tr('कोणतीही नोंद नाही · No history'))
               : CardList([
                   for (final l in logs)
                     Padding(
@@ -76,7 +77,13 @@ class HistoryScreen extends StatelessWidget {
                                       weight: FontWeight.w700,
                                       color: c.ink)),
                               Text(
-                                  '${dateTimeShort(l.at)}${' · बॅच ${l.batchNo}'}${' · ${l.note}'}',
+                                  [
+                                    dateTimeShort(l.at),
+                                    if (l.batchNo != null && l.batchNo!.isNotEmpty)
+                                      '${L('बॅच', 'Batch')} ${l.batchNo}',
+                                    if (l.note != null && l.note!.isNotEmpty)
+                                      noteLabel(l.note!),
+                                  ].join(' · '),
                                   style:
                                       TextStyle(fontSize: 11.5, color: c.ink2)),
                             ])),

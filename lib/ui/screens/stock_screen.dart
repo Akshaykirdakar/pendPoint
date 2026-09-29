@@ -8,8 +8,15 @@ import '../../utils/formatters.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
+import '../widgets/pickers.dart';
+import '../widgets/tiles.dart';
+import 'bag_stock_screen.dart';
+import 'catalogue_screen.dart';
 import 'history_screen.dart';
+import 'purchase_entry_screen.dart';
+import 'purchases_screen.dart';
 import 'stock_in_screen.dart';
+import '../../utils/lang.dart';
 
 class StockScreen extends StatefulWidget {
   const StockScreen({super.key});
@@ -19,6 +26,7 @@ class StockScreen extends StatefulWidget {
 
 class _StockScreenState extends State<StockScreen> {
   bool _lowOnly = false;
+  String? _brandId; // null = All Brands
 
   @override
   Widget build(BuildContext context) {
@@ -27,15 +35,62 @@ class _StockScreenState extends State<StockScreen> {
       titleMr: 'साठा',
       titleEn: 'Inventory',
       actions: [
-        BarAction('＋ भरा', onTap: () => _push(context, const StockInScreen()))
+        BarAction('＋ खरेदी · Purchase',
+            onTap: () => _push(context, const PurchaseEntryScreen()))
       ],
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        TileGrid(columns: 3, gap: 8, [
+          BigTile(
+              icon: Icons.local_shipping_rounded,
+              mr: 'खरेदी',
+              en: 'Purchase',
+              color: context.c.brand,
+              onTap: () => _push(context, const PurchaseEntryScreen())),
+          BigTile(
+              key: const ValueKey('stock-bag-report'),
+              icon: Icons.inventory_rounded,
+              mr: 'गोणी साठा',
+              en: 'Bag stock',
+              color: context.c.s1,
+              onTap: () => _push(context, const BagStockScreen())),
+          BigTile(
+              key: const ValueKey('stock-purchases'),
+              icon: Icons.list_alt_rounded,
+              mr: 'खरेदी यादी',
+              en: 'Purchases',
+              color: context.c.s2,
+              onTap: () => _push(context, const PurchasesScreen())),
+          BigTile(
+              icon: Icons.history_rounded,
+              mr: 'इतिहास',
+              en: 'History',
+              color: context.c.ink2,
+              onTap: () => _push(context, const HistoryScreen())),
+          // The existing Catalogue (More → Catalogue), one tap from Stock.
+          // Owner-only, like there — brands/products/prices are owner data.
+          if (app.hasOwnerRights)
+            BigTile(
+                key: const ValueKey('stock-catalogue'),
+                icon: Icons.menu_book_rounded,
+                mr: 'कॅटलॉग',
+                en: 'Catalogue',
+                color: context.c.s3,
+                onTap: () => _push(context, const CatalogueScreen())),
+        ]),
+        const SizedBox(height: 12),
+        BrandField(
+          key: const ValueKey('stock-brand-filter'),
+          app: app,
+          includeInactive: true, // stock view shows every brand
+          brandId: _brandId,
+          onChanged: (id) => setState(() => _brandId = id),
+        ),
+        const SizedBox(height: 10),
         _seg(context),
         const SizedBox(height: 4),
-        for (final b in app.brands) ..._brandBlock(context, app, b.id),
-        const SizedBox(height: 16),
-        BigButton.ghost('🕓 साठा इतिहास · Stock history log',
-            onTap: () => _push(context, const HistoryScreen())),
+        for (final b in app.brands)
+          if (_brandId == null || b.id == _brandId)
+            ..._brandBlock(context, app, b.id),
       ]),
     );
   }
@@ -73,8 +128,8 @@ class _StockScreenState extends State<StockScreen> {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: c.line)),
       child: Row(children: [
-        b('सर्व All', !_lowOnly, () => setState(() => _lowOnly = false)),
-        b('कमी Low', _lowOnly, () => setState(() => _lowOnly = true)),
+        b(tr('सर्व · All'), !_lowOnly, () => setState(() => _lowOnly = false)),
+        b(tr('कमी · Low'), _lowOnly, () => setState(() => _lowOnly = true)),
       ]),
     );
   }
@@ -108,29 +163,39 @@ class _StockScreenState extends State<StockScreen> {
                 ProductName(p),
                 const SizedBox(height: 2),
                 Text(
-                    '${s.bags} bags · ${kg(s.looseKg)} loose · ${kg(app.effKg(p.id))} total',
+                    '🛍️ ${s.bags} ${tr('गोणी · bags')}    ⚖️ ${kg(s.looseKg)} ${tr('सुटे · loose')}',
                     style: TextStyle(fontSize: 12, color: c.ink2)),
               ]),
         ),
-        Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          StatusPill(app.levelOf(p.id)),
-          const SizedBox(height: 6),
-          GestureDetector(
-            onTap: () => _actions(context, app, p),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                  color: c.surface2,
-                  borderRadius: BorderRadius.circular(9),
-                  border: Border.all(color: c.line)),
-              child: Text('क्रिया ▾',
-                  style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
-                      color: c.ink)),
+        // Status + Actions stay narrow (they shrink to fit) so the product
+        // name keeps its room on a 360px phone in every language.
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 100),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            FittedBox(
+                fit: BoxFit.scaleDown, child: StatusPill(app.levelOf(p.id))),
+            const SizedBox(height: 6),
+            GestureDetector(
+              onTap: () => _actions(context, app, p),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                    color: c.surface2,
+                    borderRadius: BorderRadius.circular(9),
+                    border: Border.all(color: c.line)),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(L('क्रिया ▾', 'Actions ▾'),
+                      style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: c.ink)),
+                ),
+              ),
             ),
-          ),
-        ]),
+          ]),
+        ),
       ]),
     );
   }
@@ -160,24 +225,31 @@ class _StockScreenState extends State<StockScreen> {
                   style: baloo(
                       size: 18, weight: FontWeight.w700, color: context.c.ink)),
               const SizedBox(height: 12),
-              BigButton.brand('📦 साठा भरा · Stock in', onTap: () {
+              BigButton.brand(tr('📦 खरेदी नोंद · Purchase entry'), onTap: () {
+                Navigator.pop(ctx);
+                _push(context, PurchaseEntryScreen(productId: p.id));
+              }),
+              const SizedBox(height: 10),
+              BigButton.ghost(
+                  tr('➕ एकल / सुटे साठा · Single or loose stock-in'),
+                  onTap: () {
                 Navigator.pop(ctx);
                 _push(context, StockInScreen(productId: p.id));
               }),
               const SizedBox(height: 10),
               BigButton.ghost(
-                  '🔓 गोणी उघडा · Open a bag (+${p.bagWeightKg}kg loose)',
+                  tr('🔓 गोणी उघडा · Open a bag (+${p.bagWeightKg}kg loose)'),
                   onTap: s.bags < 1
                       ? null
                       : () async {
                           Navigator.pop(ctx);
                           await app.openBag(p.id);
                           if (context.mounted) {
-                            showToast(context, 'गोणी उघडली · Opened');
+                            showToast(context, tr('गोणी उघडली · Opened'));
                           }
                         }),
               const SizedBox(height: 10),
-              BigButton.ghost('✏️ समायोजन · Adjust / write-off', onTap: () {
+              BigButton.ghost(tr('✏️ समायोजन · Adjust / write-off'), onTap: () {
                 Navigator.pop(ctx);
                 _adjust(context, app, p);
               }),
@@ -194,11 +266,13 @@ class _StockScreenState extends State<StockScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: context.c.surface,
-        title: Text('साठा समायोजन · Adjust',
+        title: Text(tr('साठा समायोजन · Adjust'),
             style:
                 baloo(size: 17, weight: FontWeight.w700, color: context.c.ink)),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('Damage / loss / correction. Use minus to write off.',
+          Text(
+              L('खराब / घट / दुरुस्ती. कमी करण्यासाठी वजा (−) टाका.',
+                  'Damage / loss / correction. Use minus to write off.'),
               style: TextStyle(fontSize: 12, color: context.c.ink2)),
           const SizedBox(height: 10),
           Row(children: [
@@ -206,22 +280,25 @@ class _StockScreenState extends State<StockScreen> {
                 child: TextField(
                     controller: bagsCtrl,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'गोणी ±'))),
+                    decoration:
+                        InputDecoration(labelText: '${L('गोणी', 'Bags')} ±'))),
             const SizedBox(width: 10),
             Expanded(
                 child: TextField(
                     controller: kgCtrl,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'किलो ±'))),
+                    decoration:
+                        InputDecoration(labelText: '${L('किलो', 'Kg')} ±'))),
           ]),
           const SizedBox(height: 10),
           TextField(
               controller: noteCtrl,
-              decoration: const InputDecoration(labelText: 'कारण · Reason')),
+              decoration: InputDecoration(labelText: tr('कारण · Reason'))),
         ]),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('रद्द')),
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(L('रद्द', 'Cancel'))),
           FilledButton(
               onPressed: () async {
                 final b = int.tryParse(bagsCtrl.text) ?? 0;
@@ -236,10 +313,10 @@ class _StockScreenState extends State<StockScreen> {
                   Navigator.pop(ctx);
                 }
                 if (context.mounted) {
-                  showToast(context, 'साठा अद्ययावत · Stock adjusted');
+                  showToast(context, tr('साठा अद्ययावत · Stock adjusted'));
                 }
               },
-              child: const Text('जतन')),
+              child: Text(L('जतन', 'Save'))),
         ],
       ),
     );

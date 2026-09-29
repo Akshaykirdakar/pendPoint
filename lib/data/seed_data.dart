@@ -36,6 +36,7 @@ Snapshot buildSeed() {
   final suppliers = [
     Supplier(
         id: 'sup1',
+        code: '11',
         name: 'ABC Traders',
         mobile: '98765 43210',
         address: 'APMC Market, Pune',
@@ -43,6 +44,7 @@ Snapshot buildSeed() {
         createdAt: _daysAgo(400)),
     Supplier(
         id: 'sup2',
+        code: '12',
         name: 'XYZ Traders',
         mobile: '90123 45678',
         address: 'Market Yard, Pune',
@@ -50,6 +52,7 @@ Snapshot buildSeed() {
         createdAt: _daysAgo(380)),
     Supplier(
         id: 'sup3',
+        code: '13',
         name: 'Godrej Distributor',
         mobile: '99887 76655',
         gstin: '27AAAAA0000A1Z5',
@@ -57,6 +60,7 @@ Snapshot buildSeed() {
         createdAt: _daysAgo(500)),
     Supplier(
         id: 'sup4',
+        code: '14',
         name: 'Local mill',
         mobile: '88990 01122',
         active: true,
@@ -272,6 +276,7 @@ Snapshot buildSeed() {
   final customers = [
     Customer(
         id: 'c1',
+        code: '1',
         name: 'रमेश पाटील',
         mobile: '98220 11223',
         outstanding: 2380,
@@ -291,6 +296,7 @@ Snapshot buildSeed() {
         ]),
     Customer(
         id: 'c2',
+        code: '2',
         name: 'सुनिल जाधव',
         mobile: '90280 44556',
         outstanding: 0,
@@ -305,6 +311,7 @@ Snapshot buildSeed() {
         ]),
     Customer(
         id: 'c3',
+        code: '3',
         name: 'Dnyaneshwar F.',
         mobile: '70301 99881',
         outstanding: 960,

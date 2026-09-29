@@ -9,6 +9,7 @@ import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 import 'bill_screen.dart';
+import '../../utils/lang.dart';
 
 /// Revenue drill-down (spec: "Revenue card must become clickable"). Reads the
 /// same [ReportFilter] the Reports dashboard used and recomputes
@@ -41,7 +42,7 @@ class RevenueAnalyticsScreen extends StatelessWidget {
           decoration: cardDecoration(context),
           padding: const EdgeInsets.all(12),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('लागू फिल्टर · Filters applied',
+            Text(tr('लागू फिल्टर · Filters applied'),
                 style: TextStyle(
                     fontSize: 11, fontWeight: FontWeight.w700, color: c.muted)),
             const SizedBox(height: 6),
@@ -50,15 +51,15 @@ class RevenueAnalyticsScreen extends StatelessWidget {
             const SizedBox(height: 3),
             if (app.branches.length > 1)
               Text(
-                  'शाखा · Branch: ${filter.branchId == null ? 'सर्व · All' : (app.branchOf(filter.branchId!)?.nameMr ?? filter.branchId!)}',
+                  tr('शाखा · Branch: ${filter.branchId == null ? 'सर्व · All' : (app.branchOf(filter.branchId!)?.nameMr ?? filter.branchId!)}'),
                   style: TextStyle(fontSize: 12, color: c.ink2)),
             Text(
-                'ब्रँड · Brand: ${brand == null ? 'सर्व · All' : '${brand.nameMr} · ${brand.name}'}',
+                '${L('ब्रँड', 'Brand')}: ${brand == null ? L('सर्व', 'All') : '${brand.nameMr} · ${brand.name}'}',
                 style: TextStyle(fontSize: 12, color: c.ink2)),
             Text(
-                'उत्पाद · Product: ${product == null ? 'सर्व · All' : (product.nameMr.isNotEmpty ? product.nameMr : product.name)}',
+                '${L('उत्पाद', 'Product')}: ${product == null ? L('सर्व', 'All') : (product.nameMr.isNotEmpty ? product.nameMr : product.name)}',
                 style: TextStyle(fontSize: 12, color: c.ink2)),
-            Text('विक्री प्रकार · Sale Type: ${_saleTypeLabel(filter.saleType)}',
+            Text('${L('विक्री प्रकार', 'Sale Type')}: ${_saleTypeLabel(filter.saleType)}',
                 style: TextStyle(fontSize: 12, color: c.ink2)),
           ]),
         ),
@@ -67,19 +68,19 @@ class RevenueAnalyticsScreen extends StatelessWidget {
           Expanded(
               child: StatTile(
                   hero: true,
-                  label: 'एकूण विक्री · Total Revenue',
+                  label: tr('एकूण विक्री · Total Revenue'),
                   value: money(result.revenue),
-                  sub: '${result.billCount} bills')),
+                  sub: L('${result.billCount} बिले', '${result.billCount} bills'))),
         ]),
         const SizedBox(height: 11),
         Row(children: [
           Expanded(
               child: StatTile(
-                  label: 'एकूण बिले · Total Bills', value: '${result.billCount}')),
+                  label: tr('एकूण बिले · Total Bills'), value: '${result.billCount}')),
           const SizedBox(width: 11),
           Expanded(
               child: StatTile(
-                  label: 'सरासरी बिल · Avg Bill',
+                  label: tr('सरासरी बिल · Avg Bill'),
                   value: result.billCount == 0
                       ? money(0)
                       : money(result.revenue / result.billCount))),
@@ -88,17 +89,17 @@ class RevenueAnalyticsScreen extends StatelessWidget {
           const SizedBox(height: 8),
           Container(
             decoration: cardDecoration(context),
-            child: const EmptyState('📭',
-                'निवडलेल्या फिल्टरसाठी विक्री सापडली नाही.\nNo sales found for the selected filters.'),
+            child: EmptyState('📭',
+                tr('निवडलेल्या फिल्टरसाठी विक्री सापडली नाही.\nNo sales found for the selected filters.')),
           ),
         ] else ...[
-          SectionHeader('पेमेंट पद्धत · Payment method'),
+          SectionHeader(tr('पेमेंट पद्धत · Payment method')),
           Container(
             decoration: cardDecoration(context),
             padding: const EdgeInsets.all(14),
             child: Column(children: [
               PaymentMixBar(
-                  label: 'रोख Cash',
+                  label: tr('रोख · Cash'),
                   value: result.paymentTotals[PayMode.cash] ?? 0,
                   total: result.revenue,
                   color: c.s1),
@@ -108,33 +109,33 @@ class RevenueAnalyticsScreen extends StatelessWidget {
                   total: result.revenue,
                   color: c.s3),
               PaymentMixBar(
-                  label: 'उधार Credit (या कालावधीत नोंदवलेले · recorded in period)',
+                  label: L('उधार (या कालावधीत नोंदवलेले)', 'Credit (recorded in period)'),
                   value: result.paymentTotals[PayMode.credit] ?? 0,
                   total: result.revenue,
                   color: c.s2),
             ]),
           ),
-          SectionHeader('गोणी व सुटे विक्री · Bags & Loose sales'),
+          SectionHeader(tr('गोणी व सुटे विक्री · Bags & Loose sales')),
           Row(children: [
             Expanded(
                 child: StatTile(
-                    label: 'गोणी विक्री · Bags Sales',
+                    label: tr('गोणी विक्री · Bags Sales'),
                     value: money(result.bagsRevenue),
-                    sub: '${result.bags} bags')),
+                    sub: '🛍️ ${result.bags}')),
             const SizedBox(width: 11),
             Expanded(
                 child: StatTile(
-                    label: 'सुटे विक्री · Loose Sales',
+                    label: tr('सुटे विक्री · Loose Sales'),
                     value: money(result.looseRevenue),
                     sub: kg(result.looseKg))),
           ]),
-          SectionHeader('विक्री कल · Revenue trend'),
+          SectionHeader(tr('विक्री कल · Revenue trend')),
           Container(
             decoration: cardDecoration(context),
             padding: const EdgeInsets.all(14),
             child: RevenueTrendChart(daily),
           ),
-          SectionHeader('दैनंदिन विभागणी · Daily breakdown'),
+          SectionHeader(tr('दैनंदिन विभागणी · Daily breakdown')),
           CardList([
             for (final d in daily.reversed)
               Padding(
@@ -143,7 +144,7 @@ class RevenueAnalyticsScreen extends StatelessWidget {
                   Expanded(
                       child: Text(dayFull(d.day),
                           style: baloo(size: 13, weight: FontWeight.w700, color: c.ink))),
-                  Text('${d.billCount} bills',
+                  Text(L('${d.billCount} बिले', '${d.billCount} bills'),
                       style: TextStyle(fontSize: 11.5, color: c.ink2)),
                   const SizedBox(width: 10),
                   Text(money(d.revenue),
@@ -151,16 +152,16 @@ class RevenueAnalyticsScreen extends StatelessWidget {
                 ]),
               ),
           ]),
-          SectionHeader('टॉप उत्पादने · Top-selling products'),
+          SectionHeader(tr('टॉप उत्पादने · Top-selling products')),
           CardList([
             for (final stat in result.products.take(5))
               _productRow(context, app, stat, result.revenue),
           ]),
-          SectionHeader('ब्रँडनुसार विक्री · Revenue by brand'),
+          SectionHeader(tr('ब्रँडनुसार विक्री · Revenue by brand')),
           CardList([
             for (final b in brandStats) _brandRow(context, app, b, result.revenue),
           ]),
-          SectionHeader('व्यवहार · Transactions'),
+          SectionHeader(tr('व्यवहार · Transactions')),
           CardList([
             for (final row in transactions)
               TransactionTile(
@@ -192,7 +193,7 @@ class RevenueAnalyticsScreen extends StatelessWidget {
                 children: [
               Text(p?.nameMr.isNotEmpty == true ? p!.nameMr : (p?.name ?? stat.productId),
                   style: baloo(size: 14, weight: FontWeight.w700, color: c.ink)),
-              Text('${(pct * 100).toStringAsFixed(0)}% of revenue',
+              Text(L('विक्रीच्या ${(pct * 100).toStringAsFixed(0)}%', '${(pct * 100).toStringAsFixed(0)}% of revenue'),
                   style: TextStyle(fontSize: 11.5, color: c.muted)),
             ])),
         Text(money(stat.revenue),
@@ -215,7 +216,7 @@ class RevenueAnalyticsScreen extends StatelessWidget {
                 children: [
               Text(b == null ? stat.brandId : '${b.nameMr} · ${b.name}',
                   style: baloo(size: 14, weight: FontWeight.w700, color: c.ink)),
-              Text('${(pct * 100).toStringAsFixed(0)}% of revenue',
+              Text(L('विक्रीच्या ${(pct * 100).toStringAsFixed(0)}%', '${(pct * 100).toStringAsFixed(0)}% of revenue'),
                   style: TextStyle(fontSize: 11.5, color: c.muted)),
             ])),
         Text(money(stat.revenue),
@@ -225,8 +226,8 @@ class RevenueAnalyticsScreen extends StatelessWidget {
   }
 
   String _saleTypeLabel(SaleTypeFilter f) => switch (f) {
-        SaleTypeFilter.all => 'सर्व · All',
-        SaleTypeFilter.bags => 'बॅग · Bags',
-        SaleTypeFilter.loose => 'सुटे · Loose',
+        SaleTypeFilter.all => tr('सर्व · All'),
+        SaleTypeFilter.bags => tr('बॅग · Bags'),
+        SaleTypeFilter.loose => tr('सुटे · Loose'),
       };
 }

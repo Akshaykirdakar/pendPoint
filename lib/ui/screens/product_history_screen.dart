@@ -10,6 +10,7 @@ import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 import 'bill_screen.dart';
+import '../../utils/lang.dart';
 
 /// Product drill-down (reviewed spec §8–§11): every sale of one product
 /// within the Reports screen's currently selected date range, each row
@@ -42,7 +43,7 @@ class ProductHistoryScreen extends StatelessWidget {
       actions: [
         const InfoTooltip('Download or share this product\'s sales history.\n'
             'या उत्पादनाचा विक्री इतिहास डाउनलोड किंवा शेअर करा.'),
-        BarAction('एक्सपोर्ट', icon: Icons.ios_share_rounded,
+        BarAction('एक्सपोर्ट · Export', icon: Icons.ios_share_rounded,
             onTap: () => showExportSheet(
                   context,
                   onDownloadPdf: () =>
@@ -91,25 +92,25 @@ class ProductHistoryScreen extends StatelessWidget {
           Expanded(
               child: StatTile(
                   hero: true,
-                  label: 'विक्री · Revenue',
+                  label: tr('विक्री · Revenue'),
                   value: money(history.totalRevenue),
-                  sub: '${history.totalBills} bills')),
+                  sub: L('${history.totalBills} बिले', '${history.totalBills} bills'))),
         ]),
         const SizedBox(height: 11),
         Row(children: [
           Expanded(
-              child: StatTile(label: 'गोणी · Bags', value: '${history.totalBags}')),
+              child: StatTile(label: tr('गोणी · Bags'), value: '${history.totalBags}')),
           const SizedBox(width: 11),
           Expanded(
               child: StatTile(
-                  label: 'सुटे · Loose', value: kg(history.totalLooseKg))),
+                  label: tr('सुटे · Loose'), value: kg(history.totalLooseKg))),
         ]),
-        SectionHeader('विक्री नोंदी · Sales'),
+        SectionHeader(tr('विक्री नोंदी · Sales')),
         if (history.isEmpty)
           Container(
             decoration: cardDecoration(context),
-            child: const EmptyState('📭',
-                'निवडलेल्या फिल्टरसाठी विक्री सापडली नाही.\nNo sales found for the selected filters.'),
+            child: EmptyState('📭',
+                tr('निवडलेल्या फिल्टरसाठी विक्री सापडली नाही.\nNo sales found for the selected filters.')),
           )
         else
           CardList([
@@ -125,7 +126,7 @@ class ProductHistoryScreen extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                          Text('बिल #${row.bill.billNumber}',
+                          Text('${L('बिल', 'Bill')} #${row.bill.billNumber}',
                               style: baloo(
                                   size: 13.5,
                                   weight: FontWeight.w700,
@@ -138,7 +139,7 @@ class ProductHistoryScreen extends StatelessWidget {
                                     TextStyle(fontSize: 11.5, color: c.ink2)),
                           Text(
                               row.item.saleType == SaleType.bag
-                                  ? '${row.item.qty.round()} × गोणी bag'
+                                  ? '${row.item.qty.round()} × ${L('गोणी', 'bag')}'
                                   : '${kg(row.item.qty)} सुटे loose',
                               style: TextStyle(fontSize: 11.5, color: c.muted)),
                         ])),
@@ -153,7 +154,7 @@ class ProductHistoryScreen extends StatelessWidget {
                           const SizedBox(height: 3),
                           Text(
                               row.bill.payments
-                                  .map((p) => p.mode.name)
+                                  .map((p) => payModeLabel(p.mode))
                                   .join('+'),
                               style: TextStyle(fontSize: 11, color: c.muted)),
                         ]),

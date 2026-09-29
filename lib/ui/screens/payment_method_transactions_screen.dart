@@ -8,6 +8,7 @@ import '../../utils/formatters.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 import 'bill_screen.dart';
+import '../../utils/lang.dart';
 
 /// One payment method's filtered transaction list — opened by tapping a row
 /// in the dashboard's Payment Mix card or the Payment Mix screen (spec:
@@ -42,17 +43,17 @@ class PaymentMethodTransactionsScreen extends StatelessWidget {
                   hero: true,
                   label: '${_labelMr(mode)} · ${_labelEn(mode)}',
                   value: money(total),
-                  sub: '${rows.length} bills')),
+                  sub: L('${rows.length} बिले', '${rows.length} bills'))),
         ]),
         const SizedBox(height: 14),
         if (rows.isEmpty)
           Container(
             decoration: cardDecoration(context),
-            child: const EmptyState('📭',
-                'या पेमेंट पद्धतीसाठी व्यवहार सापडले नाहीत.\nNo transactions found for this payment method.'),
+            child: EmptyState('📭',
+                tr('या पेमेंट पद्धतीसाठी व्यवहार सापडले नाहीत.\nNo transactions found for this payment method.')),
           )
         else ...[
-          SectionHeader('व्यवहार · Transactions'),
+          SectionHeader(tr('व्यवहार · Transactions')),
           CardList([
             for (final row in rows)
               TransactionTile(

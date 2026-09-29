@@ -8,6 +8,7 @@ import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 import 'bill_screen.dart';
+import '../../utils/lang.dart';
 
 /// Bags Sales Analytics / Loose Sales Analytics — one parametrized screen for
 /// both (spec: a reusable drill-down architecture rather than isolated
@@ -43,7 +44,7 @@ class QuantityAnalyticsScreen extends StatelessWidget {
           Expanded(
               child: StatTile(
                   hero: true,
-                  label: isBags ? 'एकूण गोणी · Total Bags' : 'एकूण सुटे · Total kg',
+                  label: isBags ? tr('एकूण गोणी · Total Bags') : tr('एकूण सुटे · Total kg'),
                   value: isBags ? '${result.bags}' : kg(result.looseKg),
                   sub: money(isBags ? result.bagsRevenue : result.looseRevenue))),
         ]),
@@ -51,21 +52,21 @@ class QuantityAnalyticsScreen extends StatelessWidget {
         Row(children: [
           Expanded(
               child: StatTile(
-                  label: 'विक्री · Revenue',
+                  label: tr('विक्री · Revenue'),
                   value: money(isBags ? result.bagsRevenue : result.looseRevenue))),
           const SizedBox(width: 11),
           Expanded(
-              child: StatTile(label: 'बिले · Bills', value: '${result.billCount}')),
+              child: StatTile(label: tr('बिले · Bills'), value: '${result.billCount}')),
         ]),
         if (result.isEmpty) ...[
           const SizedBox(height: 8),
           Container(
             decoration: cardDecoration(context),
-            child: const EmptyState('📭',
-                'निवडलेल्या फिल्टरसाठी विक्री सापडली नाही.\nNo sales found for the selected filters.'),
+            child: EmptyState('📭',
+                tr('निवडलेल्या फिल्टरसाठी विक्री सापडली नाही.\nNo sales found for the selected filters.')),
           ),
         ] else ...[
-          SectionHeader('उत्पादननिहाय विभागणी · Product-wise breakdown'),
+          SectionHeader(tr('उत्पादननिहाय विभागणी · Product-wise breakdown')),
           CardList([
             for (final stat in result.products)
               Padding(
@@ -84,7 +85,7 @@ class QuantityAnalyticsScreen extends StatelessWidget {
                                   : (p?.name ?? stat.productId);
                             })(),
                             style: baloo(size: 14, weight: FontWeight.w700, color: c.ink)),
-                        Text(isBags ? '${stat.bags} गोणी bags' : '${kg(stat.looseKg)} सुटे loose',
+                        Text(isBags ? '🛍️ ${stat.bags} ${L('गोणी', 'bags')}' : '${kg(stat.looseKg)} ${L('सुटे', 'loose')}',
                             style: TextStyle(fontSize: 11.5, color: c.muted)),
                       ])),
                   Text(money(stat.revenue),
@@ -92,7 +93,7 @@ class QuantityAnalyticsScreen extends StatelessWidget {
                 ]),
               ),
           ]),
-          SectionHeader('ब्रँडनिहाय विभागणी · Brand-wise breakdown'),
+          SectionHeader(tr('ब्रँडनिहाय विभागणी · Brand-wise breakdown')),
           CardList([
             for (final b in brandStats)
               Padding(
@@ -109,7 +110,7 @@ class QuantityAnalyticsScreen extends StatelessWidget {
                               return br == null ? b.brandId : '${br.nameMr} · ${br.name}';
                             })(),
                             style: baloo(size: 14, weight: FontWeight.w700, color: c.ink)),
-                        Text(isBags ? '${b.bags} गोणी bags' : '${kg(b.looseKg)} सुटे loose',
+                        Text(isBags ? '🛍️ ${b.bags} ${L('गोणी', 'bags')}' : '${kg(b.looseKg)} ${L('सुटे', 'loose')}',
                             style: TextStyle(fontSize: 11.5, color: c.muted)),
                       ])),
                   Text(money(b.revenue),
@@ -117,7 +118,7 @@ class QuantityAnalyticsScreen extends StatelessWidget {
                 ]),
               ),
           ]),
-          SectionHeader('व्यवहार · Transactions'),
+          SectionHeader(tr('व्यवहार · Transactions')),
           CardList([
             for (final row in transactions)
               TransactionTile(

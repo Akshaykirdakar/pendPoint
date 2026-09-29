@@ -15,6 +15,7 @@ import 'payment_method_transactions_screen.dart';
 import 'product_history_screen.dart';
 import 'quantity_analytics_screen.dart';
 import 'revenue_analytics_screen.dart';
+import '../../utils/lang.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -57,10 +58,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
       actions: [
         const InfoTooltip('Download or share this report.\n'
             'हा अहवाल डाउनलोड किंवा शेअर करा.'),
-        BarAction('एक्सपोर्ट', icon: Icons.ios_share_rounded,
+        BarAction('एक्सपोर्ट · Export', icon: Icons.ios_share_rounded,
             onTap: result.isEmpty
                 ? () => showToast(context,
-                    'निर्यात करण्यासाठी विक्री नाही · Nothing to export')
+                    tr('निर्यात करण्यासाठी विक्री नाही · Nothing to export'))
                 : () => showExportSheet(
                       context,
                       onDownloadPdf: () =>
@@ -86,9 +87,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
           Expanded(
               child: StatTile(
                   hero: true,
-                  label: 'विक्री · Revenue',
+                  label: tr('विक्री · Revenue'),
                   value: money(result.revenue),
-                  sub: '${result.billCount} bills',
+                  sub: L('${result.billCount} बिले', '${result.billCount} bills'),
                   onTap: () => Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => RevenueAnalyticsScreen(filter: _filter)))),
           ),
@@ -97,7 +98,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         Row(children: [
           Expanded(
               child: StatTile(
-                  label: 'गोणी · Bags',
+                  label: tr('गोणी · Bags'),
                   value: '${result.bags}',
                   onTap: () => Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => QuantityAnalyticsScreen(
@@ -105,7 +106,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           const SizedBox(width: 11),
           Expanded(
               child: StatTile(
-                  label: 'सुटे · Loose',
+                  label: tr('सुटे · Loose'),
                   value: kg(result.looseKg),
                   onTap: () => Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => QuantityAnalyticsScreen(
@@ -115,11 +116,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
           const SizedBox(height: 8),
           Container(
             decoration: cardDecoration(context),
-            child: const EmptyState('📭',
-                'निवडलेल्या फिल्टरसाठी विक्री सापडली नाही.\nNo sales found for the selected filters.'),
+            child: EmptyState('📭',
+                tr('निवडलेल्या फिल्टरसाठी विक्री सापडली नाही.\nNo sales found for the selected filters.')),
           ),
         ] else ...[
-          SectionHeader('पेमेंट विभागणी · Payment mix',
+          SectionHeader(tr('पेमेंट विभागणी · Payment mix'),
               action: const InfoTooltip(
                   'Tap to see the full payment breakdown — amounts, '
                   'transaction counts and averages per method.\n'
@@ -129,9 +130,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
             padding: const EdgeInsets.all(14),
             clipBehavior: Clip.antiAlias,
             child: Column(children: [
-              _payModeRow(context, result, PayMode.cash, 'रोख Cash', c.s1),
+              _payModeRow(context, result, PayMode.cash, tr('रोख · Cash'), c.s1),
               _payModeRow(context, result, PayMode.upi, 'UPI', c.s3),
-              _payModeRow(context, result, PayMode.credit, 'उधार Credit', c.s2),
+              _payModeRow(context, result, PayMode.credit, tr('उधार · Credit'), c.s2),
               InkWell(
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => PaymentMixScreen(result: result))),
@@ -139,7 +140,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: Row(children: [
                     Expanded(
-                        child: Text('संपूर्ण तपशील पहा · View full breakdown',
+                        child: Text(tr('संपूर्ण तपशील पहा · View full breakdown'),
                             style: TextStyle(
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w600,
@@ -150,7 +151,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               ),
             ]),
           ),
-          SectionHeader('टॉप उत्पादने · Top products'),
+          SectionHeader(tr('टॉप उत्पादने · Top products')),
           Container(
             decoration: cardDecoration(context),
             clipBehavior: Clip.antiAlias,
@@ -159,7 +160,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 _productRow(context, app, stat, result.revenue),
             ]),
           ),
-          SectionHeader('💸 भाव-बदल अहवाल · Discount / override'),
+          SectionHeader(tr('💸 भाव-बदल अहवाल · Discount / override')),
           Container(
             decoration: cardDecoration(context),
             clipBehavior: Clip.antiAlias,
@@ -173,12 +174,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                        Text('एकूण सूट दिली · Total discount',
+                        Text(tr('एकूण सूट दिली · Total discount'),
                             style: baloo(
                                 size: 13,
                                 weight: FontWeight.w700,
                                 color: c.ink)),
-                        Text('${overrides.length} line items had edited price',
+                        Text(L('${overrides.length} ओळींचा भाव बदलला', '${overrides.length} line items had edited price'),
                             style: TextStyle(fontSize: 11.5, color: c.ink2)),
                       ])),
                   Text(
@@ -189,7 +190,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 ]),
               ),
               if (overrides.isEmpty)
-                const EmptyState('👍', 'कोणतीही किंमत बदलली नाही · No overrides')
+                EmptyState('👍', tr('कोणतीही किंमत बदलली नाही · No overrides'))
               else
                 for (final o in overrides.take(10))
                   Padding(
@@ -207,7 +208,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                     weight: FontWeight.w700,
                                     color: c.ink)),
                             Text(
-                                'कॅटलॉग ${money(o.item.catalogRate)} → भाव ${money(o.item.rate)}',
+                                '${L('कॅटलॉग', 'Catalogue')} ${money(o.item.catalogRate)} → ${L('भाव', 'charged')} ${money(o.item.rate)}',
                                 style:
                                     TextStyle(fontSize: 11.5, color: c.ink2)),
                           ])),
@@ -222,7 +223,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
           const SizedBox(height: 12),
           Text(
-              'Every edited price stores the original catalogue rate — so this report shows exactly how much was discounted.',
+              L('बदललेल्या प्रत्येक भावासोबत मूळ कॅटलॉग भाव जतन होतो — त्यामुळे किती सूट दिली हे अचूक दिसते.', 'Every edited price stores the original catalogue rate — so this report shows exactly how much was discounted.'),
               style: TextStyle(fontSize: 11.5, color: c.muted)),
         ],
       ]),
@@ -271,7 +272,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       style: TextStyle(fontSize: 11.5, color: c.ink2)),
                 const SizedBox(height: 3),
                 Text(
-                    '${stat.bags} गोणी bags · ${kg(stat.looseKg)} सुटे loose · ${pct.isNaN ? 0 : (pct * 100).toStringAsFixed(0)}%',
+                    '🛍️ ${stat.bags} ${L('गोणी', 'bags')} · ${kg(stat.looseKg)} ${L('सुटे', 'loose')} · ${pct.isNaN ? 0 : (pct * 100).toStringAsFixed(0)}%',
                     style: TextStyle(fontSize: 11.5, color: c.muted)),
               ])),
           const SizedBox(width: 8),
@@ -303,9 +304,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            Text(label,
-                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
-            const Spacer(),
+            Expanded(
+              child: Text(label,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 12.5, fontWeight: FontWeight.w600)),
+            ),
             Text('${money(value)} · ${(pct * 100).toStringAsFixed(0)}%',
                 style: baloo(size: 13, weight: FontWeight.w700, color: c.ink)),
             const SizedBox(width: 4),
@@ -330,7 +334,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       decoration: cardDecoration(context),
       padding: const EdgeInsets.all(12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const LabelWithHelp('दिनांक श्रेणी · Date Range',
+        LabelWithHelp(tr('दिनांक श्रेणी · Date Range'),
             'Select the period used to calculate this report.\n'
                 'या अहवालासाठी वापरला जाणारा कालावधी निवडा.'),
         const SizedBox(height: 8),
@@ -358,7 +362,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   /// by (spec §16). Combines (ANDs) with every other filter, same as Brand.
   Widget _branchDropdown(BuildContext context, AppState app) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const LabelWithHelp('शाखा · Branch',
+      LabelWithHelp(tr('शाखा · Branch'),
           'Show results for a specific branch or all branches.\n'
               'विशिष्ट शाखा किंवा सर्व शाखांचे परिणाम पहा.'),
       const SizedBox(height: 4),
@@ -366,7 +370,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         initialValue: _filter.branchId,
         isExpanded: true,
         items: [
-          const DropdownMenuItem(value: null, child: Text('सर्व · All Branches')),
+          DropdownMenuItem(value: null, child: Text(tr('सर्व · All Branches'))),
           for (final b in app.branches)
             DropdownMenuItem(value: b.id, child: Text('${b.nameMr} · ${b.name}')),
         ],
@@ -387,9 +391,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
           prefixIcon: Icon(Icons.date_range_rounded, size: 20)),
       items: [
         for (final p in _presets)
-          DropdownMenuItem(value: p.$1, child: Text('${p.$2} · ${p.$3}')),
-        const DropdownMenuItem(
-            value: DateRangePresetKind.custom, child: Text('सानुकूल · Custom')),
+          DropdownMenuItem(value: p.$1, child: Text(L(p.$2, p.$3))),
+        DropdownMenuItem(
+            value: DateRangePresetKind.custom, child: Text(tr('सानुकूल · Custom'))),
       ],
       onChanged: (kind) {
         if (kind == null) return;
@@ -424,7 +428,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Widget _brandDropdown(BuildContext context, AppState app) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const LabelWithHelp('ब्रँड · Brand',
+      LabelWithHelp(tr('ब्रँड · Brand'),
           'Show results for a specific brand or all brands.\n'
               'विशिष्ट ब्रँड किंवा सर्व ब्रँडचे परिणाम पहा.'),
       const SizedBox(height: 4),
@@ -432,7 +436,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         initialValue: _filter.brandId,
         isExpanded: true,
         items: [
-          const DropdownMenuItem(value: null, child: Text('सर्व · All Brands')),
+          DropdownMenuItem(value: null, child: Text(allBrandsLabel())),
           for (final b in app.brands)
             DropdownMenuItem(value: b.id, child: Text('${b.nameMr} · ${b.name}')),
         ],
@@ -468,7 +472,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final selected =
         sorted.any((p) => p.id == _filter.productId) ? _filter.productId : null;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const LabelWithHelp('उत्पाद · Product',
+      LabelWithHelp(tr('उत्पाद · Product'),
           'Filter the report by a specific product.\n'
               'विशिष्ट उत्पादनानुसार अहवाल फिल्टर करा.'),
       const SizedBox(height: 4),
@@ -479,8 +483,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
           DropdownMenuItem(
               value: null,
               child: Text(loading
-                  ? 'लोड होत आहे... · Loading...'
-                  : 'सर्व · All Products')),
+                  ? tr('लोड होत आहे... · Loading...')
+                  : tr('सर्व · All Products'))),
           for (final p in sorted)
             DropdownMenuItem(
                 value: p.id,
@@ -496,8 +500,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
         const SizedBox(height: 4),
         Text(
             _filter.brandId == null
-                ? 'कोणतीही उत्पादने सापडली नाहीत · No products found'
-                : 'या ब्रँडसाठी कोणतीही उत्पादने नाहीत · No products for this brand',
+                ? tr('कोणतीही उत्पादने सापडली नाहीत · No products found')
+                : tr('या ब्रँडसाठी कोणतीही उत्पादने नाहीत · No products for this brand'),
             style: TextStyle(fontSize: 10.5, color: context.c.muted)),
       ],
     ]);
@@ -513,7 +517,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       (SaleTypeFilter.loose, 'सुटे', 'Loose'),
     ];
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const LabelWithHelp('विक्री प्रकार · Sale Type',
+      LabelWithHelp(tr('विक्री प्रकार · Sale Type'),
           'Show only bag sales, only loose (by-weight) sales, or both.\n'
               'फक्त गोणी विक्री, फक्त सुटी विक्री किंवा दोन्ही दाखवा.'),
       const SizedBox(height: 4),
@@ -522,7 +526,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         isExpanded: true,
         items: [
           for (final o in options)
-            DropdownMenuItem(value: o.$1, child: Text('${o.$2} · ${o.$3}')),
+            DropdownMenuItem(value: o.$1, child: Text(L(o.$2, o.$3))),
         ],
         onChanged: (v) =>
             setState(() => _filter = _filter.copyWith(saleType: v)),
@@ -535,7 +539,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       await run();
     } catch (_) {
       if (mounted) {
-        showToast(context, 'एक्सपोर्ट अयशस्वी · Export failed');
+        showToast(context, tr('एक्सपोर्ट अयशस्वी · Export failed'));
       }
     }
   }

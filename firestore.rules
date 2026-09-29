@@ -14,6 +14,23 @@ service cloud.firestore {
     }
     function isStaff() { return isSignedIn(); } // any signed-in staff member
 
+    // A batch may never be stored with negative available stock — the app
+    // re-checks this inside its stock transaction, and the rules enforce it
+    // server-side too so no client can oversell.
+    function validBatch() {
+      let d = request.resource.data;
+      return d.bagsAvailable is int && d.bagsAvailable >= 0
+        && d.looseKgAvailable is number && d.looseKgAvailable >= -0.001;
+    }
+
+    // Void / edit may only change a bill's or purchase's status markers —
+    // amounts, items, party and date stay exactly as they were saved.
+    function onlyStatusChange(replacedField) {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['status', replacedField, 'statusChangedAt'])
+        && request.resource.data.status == 'void';
+    }
+
     // Catalogue: everyone signed in reads; only admin writes prices/products.
     match /brands/{id}   { allow read: if isStaff(); allow write: if isAdmin(); }
     match /products/{id} { allow read: if isStaff(); allow write: if isAdmin(); }
@@ -21,6 +38,9 @@ service cloud.firestore {
     // Branch & Supplier masters: everyone signed in reads (needed for Stock
     // In's Branch/Supplier dropdowns); only admin manages the masters
     // themselves (see More → Branches / Suppliers, admin-gated in the app).
+    // Party Master: suppliers are the purchase parties and customers (below)
+    // the sales parties; a "both" party has one doc in each, same id — so
+    // adding a purchase party stays admin-only.
     match /branches/{id}  { allow read: if isStaff(); allow write: if isAdmin(); }
     match /suppliers/{id} { allow read: if isStaff(); allow write: if isAdmin(); }
 
@@ -32,14 +52,33 @@ service cloud.firestore {
     // (stock-in creates/tops-up a batch, a sale/void/transfer depletes or
     // credits one). Never hard-deleted by the app; deletion is admin-only as
     // a last resort.
-    match /batches/{id} { allow read, create, update: if isStaff(); allow delete: if isAdmin(); }
+    match /batches/{id} {
+      allow read: if isStaff();
+      allow create, update: if isStaff() && validBatch();
+      allow delete: if isAdmin();
+    }
 
-    // Bills: staff create & read; voids (status change) admin-only.
+    // Bills: staff create & read; void and edit (edit = void the original
+    // + create a corrected revision, in one transaction) are admin-only and
+    // can only flip the status markers. Bills are never deleted.
     match /bills/{billId} {
-      allow read, create: if isStaff();
-      allow update: if isAdmin(); // voiding
+      allow read: if isStaff();
+      allow create: if isStaff() && request.resource.data.status == 'final';
+      allow update: if isAdmin() && onlyStatusChange('replacedByBillId');
       allow delete: if false;     // never hard-delete a bill
       match /billItems/{itemId} { allow read, create: if isStaff(); allow update, delete: if false; }
+    }
+
+    // Purchase bills: same lifecycle as bills — staff record purchases,
+    // only admin voids/edits them, never deleted. An optional bill photo is
+    // written with the purchase (billPhotoUrl/billPhotoPath) at create time,
+    // so no update rule is needed for it.
+    match /purchases/{purchaseId} {
+      allow read: if isStaff();
+      allow create: if isStaff() && request.resource.data.status == 'final';
+      allow update: if isAdmin() && onlyStatusChange('replacedByPurchaseId');
+      allow delete: if false;
+      match /purchaseItems/{itemId} { allow read, create: if isStaff(); allow update, delete: if false; }
     }
 
     // Customers / khata: staff manage.

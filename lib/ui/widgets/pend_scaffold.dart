@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../models/app_settings.dart';
+import '../../utils/lang.dart';
 import '../../utils/theme.dart';
 
 /// Shared page chrome: an emerald app bar with a Marathi title + English
@@ -14,6 +16,10 @@ class PendScaffold extends StatelessWidget {
   final Widget? floatingActionButton;
   final EdgeInsets padding;
 
+  /// Pinned below the body (above the keyboard) — used by the entry grids to
+  /// keep the running total and Save button visible while rows scroll.
+  final Widget? bottomBar;
+
   const PendScaffold({
     required this.titleMr,
     required this.titleEn,
@@ -21,6 +27,7 @@ class PendScaffold extends StatelessWidget {
     this.actions = const [],
     this.scroll = true,
     this.floatingActionButton,
+    this.bottomBar,
     this.padding = const EdgeInsets.fromLTRB(15, 16, 15, 28),
     super.key,
   });
@@ -39,19 +46,41 @@ class PendScaffold extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(titleMr,
+            // One language → one big title; both → Marathi + small English.
+            Text(appLang == AppLang.en ? titleEn : tr(titleMr),
                 style: baloo(
-                    size: 19, weight: FontWeight.w800, color: c.brandInk)),
-            Text(titleEn,
-                style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w500,
-                    color: c.brandInk.withValues(alpha: 0.82))),
+                    size: appLang == AppLang.both ? 19 : 21,
+                    weight: FontWeight.w800,
+                    color: c.brandInk)),
+            if (appLang == AppLang.both)
+              Text(titleEn,
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w500,
+                      color: c.brandInk.withValues(alpha: 0.82))),
           ],
         ),
         actions: [...actions, const SizedBox(width: 6)],
       ),
       floatingActionButton: floatingActionButton,
+      bottomNavigationBar: bottomBar == null
+          ? null
+          : Padding(
+              padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom),
+              child: Container(
+                decoration: BoxDecoration(
+                    color: c.surface,
+                    border: Border(top: BorderSide(color: c.line))),
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(15, 10, 15, 10),
+                    child: bottomBar,
+                  ),
+                ),
+              ),
+            ),
       body: scroll
           ? SingleChildScrollView(padding: padding, child: body)
           : Padding(padding: padding, child: body),
@@ -83,7 +112,7 @@ class BarAction extends StatelessWidget {
                 Icon(icon, size: 16, color: c.brandInk),
                 const SizedBox(width: 5)
               ],
-              Text(label,
+              Text(tr(label),
                   style: TextStyle(
                       color: c.brandInk,
                       fontWeight: FontWeight.w700,

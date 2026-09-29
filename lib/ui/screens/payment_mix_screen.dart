@@ -10,6 +10,7 @@ import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 import 'payment_method_transactions_screen.dart';
+import '../../utils/lang.dart';
 
 /// Payment Mix detail (spec §3) — the same [ReportResult] the Reports
 /// dashboard computed for the active [ReportFilter], just presented with the
@@ -37,10 +38,10 @@ class PaymentMixScreen extends StatelessWidget {
       actions: [
         InfoTooltip('Download or share this payment breakdown.\n'
             'हे पेमेंट विभाजन डाउनलोड किंवा शेअर करा.'),
-        BarAction('एक्सपोर्ट', icon: Icons.ios_share_rounded,
+        BarAction('एक्सपोर्ट · Export', icon: Icons.ios_share_rounded,
             onTap: r.isEmpty
                 ? () => showToast(context,
-                    'निर्यात करण्यासाठी विक्री नाही · Nothing to export')
+                    tr('निर्यात करण्यासाठी विक्री नाही · Nothing to export'))
                 : () => showExportSheet(
                       context,
                       onDownloadPdf: () =>
@@ -61,7 +62,7 @@ class PaymentMixScreen extends StatelessWidget {
           decoration: cardDecoration(context),
           padding: const EdgeInsets.all(12),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('लागू फिल्टर · Filters applied',
+            Text(tr('लागू फिल्टर · Filters applied'),
                 style: TextStyle(
                     fontSize: 11, fontWeight: FontWeight.w700, color: c.muted)),
             const SizedBox(height: 6),
@@ -70,15 +71,15 @@ class PaymentMixScreen extends StatelessWidget {
             const SizedBox(height: 3),
             if (app.branches.length > 1)
               Text(
-                  'शाखा · Branch: ${r.filter.branchId == null ? 'सर्व · All' : (app.branchOf(r.filter.branchId!) == null ? r.filter.branchId! : '${app.branchOf(r.filter.branchId!)!.nameMr} · ${app.branchOf(r.filter.branchId!)!.name}')}',
+                  tr('शाखा · Branch: ${r.filter.branchId == null ? 'सर्व · All' : (app.branchOf(r.filter.branchId!) == null ? r.filter.branchId! : '${app.branchOf(r.filter.branchId!)!.nameMr} · ${app.branchOf(r.filter.branchId!)!.name}')}'),
                   style: TextStyle(fontSize: 12, color: c.ink2)),
             Text(
-                'ब्रँड · Brand: ${brand == null ? 'सर्व · All' : '${brand.nameMr} · ${brand.name}'}',
+                '${L('ब्रँड', 'Brand')}: ${brand == null ? L('सर्व', 'All') : '${brand.nameMr} · ${brand.name}'}',
                 style: TextStyle(fontSize: 12, color: c.ink2)),
             Text(
-                'उत्पाद · Product: ${_productLabel(app, r.filter.productId)}',
+                '${L('उत्पाद', 'Product')}: ${_productLabel(app, r.filter.productId)}',
                 style: TextStyle(fontSize: 12, color: c.ink2)),
-            Text('विक्री प्रकार · Sale Type: ${_saleTypeLabel(r.filter.saleType)}',
+            Text('${L('विक्री प्रकार', 'Sale Type')}: ${_saleTypeLabel(r.filter.saleType)}',
                 style: TextStyle(fontSize: 12, color: c.ink2)),
           ]),
         ),
@@ -87,19 +88,19 @@ class PaymentMixScreen extends StatelessWidget {
           Expanded(
               child: StatTile(
                   hero: true,
-                  label: 'एकूण रक्कम · Total Amount',
+                  label: tr('एकूण रक्कम · Total Amount'),
                   value: money(r.revenue),
-                  sub: '${r.billCount} bills')),
+                  sub: L('${r.billCount} बिले', '${r.billCount} bills'))),
         ]),
         const SizedBox(height: 11),
         Row(children: [
           Expanded(
               child: StatTile(
-                  label: 'एकूण बिले · Total Bills', value: '${r.billCount}')),
+                  label: tr('एकूण बिले · Total Bills'), value: '${r.billCount}')),
           const SizedBox(width: 11),
           Expanded(
               child: StatTile(
-                  label: 'सरासरी बिल · Avg Bill',
+                  label: tr('सरासरी बिल · Avg Bill'),
                   value: r.billCount == 0
                       ? money(0)
                       : money(r.revenue / r.billCount))),
@@ -108,11 +109,11 @@ class PaymentMixScreen extends StatelessWidget {
           const SizedBox(height: 8),
           Container(
             decoration: cardDecoration(context),
-            child: const EmptyState('📭',
-                'निवडलेल्या फिल्टरसाठी विक्री सापडली नाही.\nNo sales found for the selected filters.'),
+            child: EmptyState('📭',
+                tr('निवडलेल्या फिल्टरसाठी विक्री सापडली नाही.\nNo sales found for the selected filters.')),
           ),
         ] else ...[
-          SectionHeader('तपशीलवार विभागणी · Detailed breakdown',
+          SectionHeader(tr('तपशीलवार विभागणी · Detailed breakdown'),
               action: const InfoTooltip(
                   'Tap a payment method to see its transactions.\n'
                   'व्यवहार पाहण्यासाठी पेमेंट पद्धतीवर टॅप करा.')),
@@ -135,14 +136,14 @@ class PaymentMixScreen extends StatelessWidget {
                 ),
             ]),
           ),
-          SectionHeader('दैनंदिन कल · Daily trend'),
+          SectionHeader(tr('दैनंदिन कल · Daily trend')),
           Container(
             decoration: cardDecoration(context),
             padding: const EdgeInsets.all(14),
             child: RevenueTrendChart(dailySeries(buildTransactions(
                 bills: app.finalBills, products: app.products, filter: r.filter))),
           ),
-          SectionHeader('व्यवहार · Transactions per method'),
+          SectionHeader(tr('व्यवहार · Transactions per method')),
           Container(
             decoration: cardDecoration(context),
             clipBehavior: Clip.antiAlias,
@@ -171,10 +172,10 @@ class PaymentMixScreen extends StatelessWidget {
               child: Text(_label(mode),
                   style: baloo(size: 13.5, weight: FontWeight.w700, color: c.ink))),
           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text('$n व्यवहार · txns',
+            Text(tr('$n व्यवहार · txns'),
                 style: TextStyle(fontSize: 11.5, color: c.ink2)),
             if (n > 0)
-              Text('सरासरी · avg ${money(avg)}',
+              Text(tr('सरासरी · avg ${money(avg)}'),
                   style: TextStyle(fontSize: 11, color: c.muted)),
           ]),
           const SizedBox(width: 4),
@@ -185,21 +186,21 @@ class PaymentMixScreen extends StatelessWidget {
   }
 
   String _label(PayMode m) => switch (m) {
-        PayMode.cash => 'रोख Cash',
+        PayMode.cash => tr('रोख · Cash'),
         PayMode.upi => 'UPI',
-        PayMode.credit => 'उधार Credit',
+        PayMode.credit => tr('उधार · Credit'),
       };
 
   String _productLabel(AppState app, String? productId) {
-    if (productId == null) return 'सर्व · All';
+    if (productId == null) return tr('सर्व · All');
     final p = app.productOf(productId);
     return p == null ? productId : (p.nameMr.isNotEmpty ? p.nameMr : p.name);
   }
 
   String _saleTypeLabel(SaleTypeFilter f) => switch (f) {
-        SaleTypeFilter.all => 'सर्व · All',
-        SaleTypeFilter.bags => 'बॅग · Bags',
-        SaleTypeFilter.loose => 'सुटे · Loose',
+        SaleTypeFilter.all => tr('सर्व · All'),
+        SaleTypeFilter.bags => tr('बॅग · Bags'),
+        SaleTypeFilter.loose => tr('सुटे · Loose'),
       };
 
   Future<void> _export(BuildContext context, Future<void> Function() run) async {
@@ -207,7 +208,7 @@ class PaymentMixScreen extends StatelessWidget {
       await run();
     } catch (_) {
       if (context.mounted) {
-        showToast(context, 'एक्सपोर्ट अयशस्वी · Export failed');
+        showToast(context, tr('एक्सपोर्ट अयशस्वी · Export failed'));
       }
     }
   }

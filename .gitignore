@@ -27,3 +27,4 @@ android/key.properties
 
 # Keep platform projects in source control: they contain the Android build and
 # Firebase configuration used by GitHub Actions.
+tools/rules_test/node_modules/

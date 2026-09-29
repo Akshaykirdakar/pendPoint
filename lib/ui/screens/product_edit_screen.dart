@@ -9,6 +9,7 @@ import '../../utils/marathi_transliteration.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
+import '../../utils/lang.dart';
 
 class ProductEditScreen extends StatefulWidget {
   final String? productId, brandId;
@@ -85,8 +86,9 @@ class _ProductEditScreenState extends State<ProductEditScreen> {
         titleMr: edit ? 'उत्पादन संपादन' : 'नवीन उत्पादन',
         titleEn: edit ? 'Edit product' : 'New product',
         body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _label('ब्रँड · Brand'),
+          _label(tr('ब्रँड · Brand')),
           DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _brand,
               items: [
                 for (final b in a.brands)
@@ -96,35 +98,39 @@ class _ProductEditScreenState extends State<ProductEditScreen> {
                   busy ? null : (v) => setState(() => _brand = v ?? _brand)),
           const SizedBox(height: 12),
           _photo(),
-          _f('Name (English)', en),
-          Row(children: [
-            Expanded(child: _label('मराठी नाव · Marathi Name')),
-            TextButton(
-                onPressed: busy ? null : _generate,
-                child: const Text('Generate Marathi'))
-          ]),
+          _f(tr('इंग्रजी नाव · Name (English)'), en),
+          // Wraps onto two lines on a narrow phone instead of overflowing.
+          Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              alignment: WrapAlignment.spaceBetween,
+              children: [
+                _label(tr('मराठी नाव · Marathi Name')),
+                TextButton(
+                    onPressed: busy ? null : _generate,
+                    child: Text(tr('मराठी नाव बनवा · Generate Marathi')))
+              ]),
           _f('', mr),
           Row(children: [
-            Expanded(child: _f('गोणी वजन · Bag wt', wt, num: true)),
+            Expanded(child: _f(tr('गोणी वजन · Bag wt'), wt, num: true)),
             const SizedBox(width: 10),
-            Expanded(child: _f('Low bags', threshold, num: true))
+            Expanded(child: _f(tr('कमी साठा गोणी · Low bags'), threshold, num: true))
           ]),
           Row(children: [
-            Expanded(child: _f('Bag price', bag, num: true, prefix: '₹')),
+            Expanded(child: _f(tr('गोणी भाव · Bag price'), bag, num: true, prefix: '₹')),
             const SizedBox(width: 10),
-            Expanded(child: _f('Per kg', kg, num: true, prefix: '₹'))
+            Expanded(child: _f(tr('प्रति किलो · Per kg'), kg, num: true, prefix: '₹'))
           ]),
           Row(children: [
-            Expanded(child: _f('Cost', cost, num: true, prefix: '₹')),
+            Expanded(child: _f(tr('खरेदी भाव · Cost'), cost, num: true, prefix: '₹')),
             const SizedBox(width: 10),
-            Expanded(child: _f('Floor', floor, num: true, prefix: '₹'))
+            Expanded(child: _f(tr('किमान भाव · Floor'), floor, num: true, prefix: '₹'))
           ]),
-          _f('उत्पादन प्रकार · Product Type (optional)', category),
-          BigButton.brand(busy ? 'Saving...' : 'जतन करा · Save',
+          _f(tr('उत्पादन प्रकार · Product Type (optional)'), category),
+          BigButton.brand(busy ? 'Saving...' : tr('जतन करा · Save'),
               onTap: busy ? null : () => _save(a)),
           if (edit) ...[
             const SizedBox(height: 10),
-            BigButton.danger('🗑 Delete', onTap: busy ? null : () => _delete(a))
+            BigButton.danger('🗑 हटवा · Delete', onTap: busy ? null : () => _delete(a))
           ]
         ]));
   }
@@ -150,12 +156,12 @@ class _ProductEditScreenState extends State<ProductEditScreen> {
         Expanded(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Product photo'),
+          Text(tr('उत्पादन फोटो · Product photo')),
           Wrap(children: [
             TextButton(
                 onPressed: busy ? null : _pick,
                 child: Text(image == null && oldUrl == null
-                    ? 'Add Photo'
+                    ? tr('फोटो जोडा · Add Photo')
                     : 'Change Photo')),
             if (image != null || oldUrl != null)
               TextButton(
@@ -184,14 +190,21 @@ class _ProductEditScreenState extends State<ProductEditScreen> {
     } catch (_) {
       if (mounted) {
         showToast(
-            context, 'फोटो निवडता आला नाही · Unable to select product photo');
+            context, tr('फोटो निवडता आला नाही · Unable to select product photo'));
       }
     }
   }
 
   Future<void> _save(AppState a) async {
     if (en.text.trim().isEmpty && mr.text.trim().isEmpty) {
-      showToast(context, 'नाव टाका · Enter a name');
+      showToast(context, tr('नाव टाका · Enter a name'));
+      return;
+    }
+    // No second product with the same name under the same brand.
+    final dup = a.productNamed(_brand, en.text, mr.text);
+    if (dup != null && dup.id != widget.productId) {
+      showToast(context,
+          tr('या ब्रँडमध्ये हे उत्पादन आधीच आहे · This product already exists under this brand'));
       return;
     }
     setState(() => busy = true);
@@ -248,13 +261,13 @@ class _ProductEditScreenState extends State<ProductEditScreen> {
         } catch (_) {}
       }
       if (mounted) {
-        showToast(context, 'उत्पादन जतन · Product saved');
+        showToast(context, tr('उत्पादन जतन · Product saved'));
         Navigator.pop(context);
       }
     } catch (_) {
       if (mounted) {
         showToast(
-            context, 'उत्पादन जतन करता आले नाही · Unable to save product');
+            context, tr('उत्पादन जतन करता आले नाही · Unable to save product'));
       }
     } finally {
       if (mounted) setState(() => busy = false);
@@ -273,7 +286,7 @@ class _ProductEditScreenState extends State<ProductEditScreen> {
                   if (x.mounted) Navigator.pop(x);
                   if (mounted) Navigator.pop(context);
                 },
-                child: const Text('Delete'))
+                child: Text(tr('हटवा · Delete')))
           ]));
   Widget _label(String s) => Padding(
       padding: const EdgeInsets.only(bottom: 5),

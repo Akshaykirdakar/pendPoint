@@ -8,6 +8,7 @@ import '../../state/app_state.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
+import '../../utils/lang.dart';
 
 enum _PrintMode { complete, specific }
 
@@ -37,44 +38,44 @@ class _QrSheetScreenState extends State<QrSheetScreen> {
       titleEn: 'QR sheet',
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(
-            'छापण्यायोग्य QR कॅटलॉग · Scanning a code opens that product at the counter.',
+            L('छापण्यायोग्य QR कॅटलॉग — कोड स्कॅन केल्यावर ते उत्पादन उघडते.', 'Printable QR catalogue — scanning a code opens that product at the counter.'),
             style: TextStyle(color: context.c.ink2, fontSize: 13)),
         const SizedBox(height: 14),
         _brandDropdown(context, app),
         const SizedBox(height: 12),
         SegmentedButton<_PrintMode>(
-          segments: const [
+          segments: [
             ButtonSegment(
                 value: _PrintMode.complete,
-                label: Text('संपूर्ण कॅटलॉग · Complete catalogue')),
+                label: Text(tr('संपूर्ण कॅटलॉग · Complete catalogue'))),
             ButtonSegment(
                 value: _PrintMode.specific,
-                label: Text('निवडक · Select specific')),
+                label: Text(tr('निवडक · Select specific'))),
           ],
           selected: {_mode},
           onSelectionChanged: (s) => setState(() => _mode = s.first),
         ),
         if (_mode == _PrintMode.specific) ...[
           const SizedBox(height: 10),
-          Text('${_selected.length} निवडले · ${_selected.length} selected',
+          Text(tr('${_selected.length} निवडले · ${_selected.length} selected'),
               style: TextStyle(fontSize: 12, color: c.ink2)),
           const SizedBox(height: 2),
           Wrap(spacing: 4, children: [
             TextButton(
               onPressed: () => setState(
                   () => _selected.addAll(products.map((p) => p.id))),
-              child: const Text('सर्व निवडा · Select all'),
+              child: Text(tr('सर्व निवडा · Select all')),
             ),
             TextButton(
               onPressed: () => setState(() => _selected.clear()),
-              child: const Text('साफ करा · Clear'),
+              child: Text(tr('साफ करा · Clear')),
             ),
           ]),
         ],
         const SizedBox(height: 8),
         if (products.isEmpty)
-          const EmptyState(
-              '📭', 'या ब्रँडसाठी कोणतीही उत्पादने नाहीत · No products for this brand')
+          EmptyState(
+              '📭', tr('या ब्रँडसाठी कोणतीही उत्पादने नाहीत · No products for this brand'))
         else
           LayoutBuilder(builder: (context, constraints) {
             const spacing = 11.0;
@@ -99,10 +100,10 @@ class _QrSheetScreenState extends State<QrSheetScreen> {
         const SizedBox(height: 16),
         BigButton.brand(
             _busy
-                ? 'तयार करत आहे... · Preparing...'
+                ? tr('तयार करत आहे... · Preparing...')
                 : _mode == _PrintMode.specific
-                    ? '🖨️ निवडक छापा · Print selected (${_selected.length})'
-                    : '🖨️ शीट छापा · Export sheet',
+                    ? tr('🖨️ निवडक छापा · Print selected (${_selected.length})')
+                    : tr('🖨️ शीट छापा · Export sheet'),
             onTap: !_busy && _canExport(products)
                 ? () => _export(app, products)
                 : null),
@@ -133,9 +134,9 @@ class _QrSheetScreenState extends State<QrSheetScreen> {
     return DropdownButtonFormField<String?>(
       initialValue: _brandId,
       isExpanded: true,
-      decoration: const InputDecoration(labelText: 'ब्रँड · Brand'),
+      decoration: InputDecoration(labelText: tr('ब्रँड · Brand')),
       items: [
-        const DropdownMenuItem(value: null, child: Text('सर्व ब्रँड · All Brands')),
+        DropdownMenuItem(value: null, child: Text(allBrandsLabel())),
         for (final b in app.brands)
           DropdownMenuItem(value: b.id, child: Text('${b.nameMr} · ${b.name}')),
       ],
@@ -190,11 +191,11 @@ class _QrSheetScreenState extends State<QrSheetScreen> {
             child: Row(children: [
               Expanded(
                   child: _infoChip(context, Icons.inventory_2_outlined,
-                      'पॅक · Pack', '${p.bagWeightKg} kg')),
+                      tr('पॅक · Pack'), '${p.bagWeightKg} kg')),
               Container(width: 1, height: 26, color: c.line),
               Expanded(
                   child: _infoChip(context, Icons.sell_outlined,
-                      'प्रकार · Category', p.category ?? 'सर्वसाधारण · General')),
+                      tr('प्रकार · Category'), p.category ?? tr('सर्वसाधारण · General'))),
             ]),
           ),
         ]),

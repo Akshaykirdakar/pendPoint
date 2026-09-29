@@ -3,10 +3,28 @@ enum AppLang { mr, both, en }
 
 enum AppThemeMode { system, light, dark }
 
+/// Text size for the whole app (Settings → अक्षरांचा आकार). Applied through
+/// Flutter's text scaler, so layouts reflow instead of being zoomed.
+enum AppFontSize {
+  small(0.9),
+  medium(1.0),
+  large(1.15),
+  extraLarge(1.3);
+
+  const AppFontSize(this.scale);
+  final double scale;
+}
+
+/// Colour theme (Settings → रंगाची थीम). Only the brand colours change;
+/// success / warning / error colours stay the same in every theme.
+enum AppColorTheme { green, blue, orange, purple, plain }
+
 class AppSettings {
   String shop;
   AppLang lang;
   AppThemeMode theme;
+  AppFontSize fontSize;
+  AppColorTheme colorTheme;
   int lowDefaultBags;
   bool floorOn; // enforce per-product price floor
   bool gateOverride; // require Owner PIN for large discounts
@@ -27,6 +45,8 @@ class AppSettings {
     this.shop = 'जय किसान पेंड भांडार',
     this.lang = AppLang.both,
     this.theme = AppThemeMode.system,
+    this.fontSize = AppFontSize.medium,
+    this.colorTheme = AppColorTheme.green,
     this.lowDefaultBags = 5,
     this.floorOn = true,
     this.gateOverride = true,
@@ -46,6 +66,8 @@ class AppSettings {
         shop: shop,
         lang: lang,
         theme: theme,
+        fontSize: fontSize,
+        colorTheme: colorTheme,
         lowDefaultBags: lowDefaultBags,
         floorOn: floorOn,
         gateOverride: gateOverride,
@@ -65,6 +87,8 @@ class AppSettings {
         'shop': shop,
         'lang': lang.name,
         'theme': theme.name,
+        'fontSize': fontSize.name,
+        'colorTheme': colorTheme.name,
         'lowDefaultBags': lowDefaultBags,
         'floorOn': floorOn,
         'gateOverride': gateOverride,
@@ -86,6 +110,13 @@ class AppSettings {
             .firstWhere((l) => l.name == m['lang'], orElse: () => AppLang.both),
         theme: AppThemeMode.values.firstWhere((t) => t.name == m['theme'],
             orElse: () => AppThemeMode.system),
+        // Absent on settings saved before these existed → Medium / Green
+        // (the app's original look).
+        fontSize: AppFontSize.values.firstWhere((f) => f.name == m['fontSize'],
+            orElse: () => AppFontSize.medium),
+        colorTheme: AppColorTheme.values.firstWhere(
+            (t) => t.name == m['colorTheme'],
+            orElse: () => AppColorTheme.green),
         lowDefaultBags: (m['lowDefaultBags'] ?? 5) as int,
         floorOn: (m['floorOn'] ?? true) as bool,
         gateOverride: (m['gateOverride'] ?? true) as bool,

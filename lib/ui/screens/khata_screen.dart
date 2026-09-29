@@ -7,6 +7,7 @@ import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 import 'customer_screen.dart';
+import '../../utils/lang.dart';
 
 class KhataScreen extends StatelessWidget {
   const KhataScreen({super.key});
@@ -21,14 +22,14 @@ class KhataScreen extends StatelessWidget {
     return PendScaffold(
       titleMr: 'उधार खाते',
       titleEn: 'Credit / Khata',
-      actions: [BarAction('＋ ग्राहक', onTap: () => _addCustomer(context, app))],
+      actions: [BarAction('＋ ग्राहक · Customer', onTap: () => _addCustomer(context, app))],
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         StatTile(
             hero: true,
-            label: 'एकूण उधार बाकी · Total outstanding',
+            label: tr('एकूण उधार बाकी · Total outstanding'),
             value: money(app.totalOutstanding),
             sub:
-                '${cs.where((x) => x.outstanding > 0).length} customers with dues'),
+                '👥 ${cs.where((x) => x.outstanding > 0).length}'),
         const SizedBox(height: 16),
         if (app.historyLoading && cs.isEmpty)
           const HistoryLoadingNote()
@@ -66,7 +67,7 @@ class KhataScreen extends StatelessWidget {
                                   weight: FontWeight.w800,
                                   color:
                                       cu.outstanding > 0 ? c.serious : c.good)),
-                          Text(cu.outstanding > 0 ? 'बाकी due' : 'चुकते clear',
+                          Text(cu.outstanding > 0 ? tr('बाकी · due') : tr('चुकते · clear'),
                               style: TextStyle(fontSize: 10.5, color: c.muted)),
                         ]),
                   ]),
@@ -84,18 +85,18 @@ class KhataScreen extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: context.c.surface,
-        title: Text('नवीन ग्राहक · New customer',
+        title: Text(tr('नवीन ग्राहक · New customer'),
             style:
                 baloo(size: 17, weight: FontWeight.w700, color: context.c.ink)),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
           TextField(
               controller: nameCtrl,
-              decoration: const InputDecoration(labelText: 'नाव · Name')),
+              decoration: InputDecoration(labelText: tr('नाव · Name'))),
           const SizedBox(height: 10),
           TextField(
               controller: mobCtrl,
               keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(labelText: 'मोबाइल · Mobile')),
+              decoration: InputDecoration(labelText: tr('मोबाइल · Mobile'))),
         ]),
         actions: [
           TextButton(

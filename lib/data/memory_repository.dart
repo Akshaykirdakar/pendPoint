@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../models/app_settings.dart';
 import '../models/batch.dart';
 import '../models/bill.dart';
@@ -11,6 +13,7 @@ import '../models/stock_log.dart';
 import '../models/staff.dart';
 import '../models/supplier.dart';
 import 'repository.dart';
+import 'stock_commit.dart';
 import 'seed_data.dart';
 
 /// Default repository — keeps everything in memory, seeded with a sample shop,
@@ -19,6 +22,7 @@ import 'seed_data.dart';
 /// the [Repository] contract. Swap for [FirestoreRepository] to persist.
 class InMemoryRepository implements Repository {
   int _counter = 1000;
+  int _purchaseCounter = 0;
 
   // Set by loadCore() and consumed by loadHistory() so a single bootstrap
   // cycle's two staged reads come from the same seed instance. A *new*
@@ -52,14 +56,38 @@ class InMemoryRepository implements Repository {
       bills: snap.bills,
       customers: snap.customers,
       batches: snap.batches,
+      purchases: const [],
     );
   }
 
   @override
   Future<int> nextBillNumber() async => ++_counter;
+  @override
+  Future<int> nextPurchaseNumber() async => ++_purchaseCounter;
+
+  /// [AppState] validates every commit against its working copy before
+  /// calling this, and there is no other device to race with, so there is
+  /// nothing to persist or re-check here.
+  @override
+  Future<void> commitStock(StockCommit commit) async {}
 
   @override
   Future<void> upsertBrand(Brand brand) async {}
+  @override
+  Future<void> deleteBrand(String brandId,
+      {List<String> productIds = const []}) async {}
+
+  @override
+  Future<String> uploadBrandPhoto(
+      String brandId, Uint8List bytes, String extension) async {
+    final path = 'brands/$brandId/logo_${DateTime.now().microsecondsSinceEpoch}.$extension';
+    photos[path] = bytes;
+    return 'memory://$path';
+  }
+
+  @override
+  Future<void> deleteBrandPhoto(String url) async =>
+      photos.remove(url.replaceFirst('memory://', ''));
   @override
   Future<void> upsertStaff(Staff staff) async {}
   @override
@@ -79,10 +107,6 @@ class InMemoryRepository implements Repository {
   @override
   Future<void> addStockLog(StockLog log) async {}
   @override
-  Future<void> saveBill(Bill bill) async {}
-  @override
-  Future<void> updateBillStatus(String billId, BillStatus status) async {}
-  @override
   Future<void> upsertCustomer(Customer customer) async {}
   @override
   Future<void> addLedgerEntry(
@@ -92,4 +116,22 @@ class InMemoryRepository implements Repository {
 
   @override
   String? get currentUserId => null;
+
+  /// Bill photos kept in memory, keyed by storage-style path.
+  final Map<String, Uint8List> photos = {};
+
+  @override
+  Future<StoredPhoto> uploadPurchaseBillPhoto(
+      String purchaseId, Uint8List bytes, String extension) async {
+    final path = purchaseBillPhotoPath(purchaseId, extension);
+    photos[path] = bytes;
+    return StoredPhoto(path, 'memory://$path');
+  }
+
+  @override
+  Future<Uint8List?> loadPurchaseBillPhoto(String path) async => photos[path];
+
+  @override
+  Future<void> deletePurchaseBillPhoto(String path) async =>
+      photos.remove(path);
 }

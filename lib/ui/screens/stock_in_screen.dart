@@ -7,6 +7,7 @@ import '../../utils/formatters.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
+import '../../utils/lang.dart';
 
 /// Stock In — rebuilt per the reviewed branch/batch/expiry architecture
 /// (spec §1/§21). Selection order: Product (shop-wide) → Supplier
@@ -59,8 +60,8 @@ class _StockInScreenState extends State<StockInScreen> {
       return PendScaffold(
         titleMr: 'साठा भरा',
         titleEn: 'Stock in',
-        body: const EmptyState('🏬',
-            'दुकान सेट झाले नाही · Shop is not set up yet.'),
+        body: EmptyState('🏬',
+            tr('दुकान सेट झाले नाही · Shop is not set up yet.')),
       );
     }
 
@@ -74,11 +75,12 @@ class _StockInScreenState extends State<StockInScreen> {
       titleMr: 'साठा भरा',
       titleEn: 'Stock in',
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('नवीन खरेदी नोंदवा · Record a purchase against a real batch.',
+        Text(tr('नवीन खरेदी नोंदवा · Record a purchase against a real batch.'),
             style: TextStyle(color: c.ink2, fontSize: 13)),
         const SizedBox(height: 14),
-        _label('उत्पादन · Product *'),
+        _label(tr('उत्पादन · Product *')),
         DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _pid,
               items: [
                 for (final p in products)
@@ -88,29 +90,30 @@ class _StockInScreenState extends State<StockInScreen> {
                           overflow: TextOverflow.ellipsis)),
               ],
               hint: Text(products.isEmpty
-                  ? 'उत्पादने नाहीत · No products yet'
-                  : 'निवडा · Select'),
+                  ? tr('उत्पादने नाहीत · No products yet')
+                  : tr('निवडा · Select')),
               onChanged: (v) => setState(() => _pid = v),
         ),
         const SizedBox(height: 12),
-        _label('पुरवठादार · Supplier *'),
+        _label(tr('पुरवठादार · Supplier *')),
         DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: app.suppliers.any((s) => s.id == _supplierId) ? _supplierId : null,
           items: [
             for (final s in app.suppliers.where((s) => s.active))
               DropdownMenuItem(value: s.id, child: Text(s.name)),
           ],
-          hint: const Text('निवडा · Select'),
+          hint: Text(tr('निवडा · Select')),
           onChanged: (v) => setState(() => _supplierId = v),
         ),
         if (app.suppliers.where((s) => s.active).isEmpty) ...[
           const SizedBox(height: 4),
-          Text('कोणतेही पुरवठादार नाहीत · No suppliers yet — add one under More → Suppliers.',
+          Text(tr('कोणतेही पुरवठादार नाहीत · No suppliers yet — add one under More → Suppliers.'),
               style: TextStyle(fontSize: 11, color: c.muted)),
         ],
         const SizedBox(height: 12),
         _field(
-            'बॅच क्र. · Batch no.${product?.batchTrackingEnabled ?? true ? ' *' : ' (optional)'}',
+            tr('बॅच क्र. · Batch no.${product?.batchTrackingEnabled ?? true ? ' *' : ' (optional)'}'),
             _batch),
         Row(children: [
           Expanded(
@@ -118,11 +121,11 @@ class _StockInScreenState extends State<StockInScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                _label('प्रकार · Unit'),
+                _label(tr('प्रकार · Unit')),
                 SegmentedButton<_Unit>(
-                  segments: const [
-                    ButtonSegment(value: _Unit.bags, label: Text('गोणी · Bags')),
-                    ButtonSegment(value: _Unit.loose, label: Text('सुटे · Loose')),
+                  segments: [
+                    ButtonSegment(value: _Unit.bags, label: Text(tr('गोणी · Bags'))),
+                    ButtonSegment(value: _Unit.loose, label: Text(tr('सुटे · Loose'))),
                   ],
                   selected: {_unit},
                   onSelectionChanged: (s) => setState(() => _unit = s.first),
@@ -133,17 +136,17 @@ class _StockInScreenState extends State<StockInScreen> {
         Row(children: [
           Expanded(
               child: _field(
-                  _unit == _Unit.bags ? 'गोणी संख्या · Bags qty' : 'सुटे वजन (kg) · Loose kg',
+                  _unit == _Unit.bags ? tr('गोणी संख्या · Bags qty') : 'सुटे वजन (kg) · Loose kg',
                   _qty,
                   number: true)),
           const SizedBox(width: 11),
           Expanded(
-              child: _field('खरेदी भाव/गोणी · Cost/bag', _cost, number: true, prefix: '₹')),
+              child: _field(tr('खरेदी भाव/गोणी · Cost/bag'), _cost, number: true, prefix: '₹')),
         ]),
         _dateField(context,
             required: product?.expiryTrackingEnabled ?? true),
         const SizedBox(height: 8),
-        BigButton.brand(_busy ? 'जोडत आहे... · Adding...' : '📦 साठा जोडा · Add stock',
+        BigButton.brand(_busy ? tr('जोडत आहे... · Adding...') : tr('📦 साठा जोडा · Add stock'),
             onTap: _busy ? null : () => _submit(app, product)),
       ]),
     );
@@ -151,33 +154,33 @@ class _StockInScreenState extends State<StockInScreen> {
 
   Future<void> _submit(AppState app, Product? product) async {
     if (_branchId == null) {
-      showToast(context, 'शाखा निवडा · Pick a branch');
+      showToast(context, tr('शाखा निवडा · Pick a branch'));
       return;
     }
     if (_pid == null || product == null) {
-      showToast(context, 'उत्पादन निवडा · Pick a product');
+      showToast(context, tr('उत्पादन निवडा · Pick a product'));
       return;
     }
     if (_supplierId == null) {
-      showToast(context, 'पुरवठादार निवडा · Pick a supplier');
+      showToast(context, tr('पुरवठादार निवडा · Pick a supplier'));
       return;
     }
     final qty = double.tryParse(_qty.text) ?? 0;
     if (qty <= 0) {
-      showToast(context, 'योग्य प्रमाण टाका · Enter a valid quantity');
+      showToast(context, tr('योग्य प्रमाण टाका · Enter a valid quantity'));
       return;
     }
     if (product.batchTrackingEnabled && _batch.text.trim().isEmpty) {
-      showToast(context, 'बॅच क्र. टाका · Enter a batch number');
+      showToast(context, tr('बॅच क्र. टाका · Enter a batch number'));
       return;
     }
     if (product.expiryTrackingEnabled && _expiry == null) {
-      showToast(context, 'एक्सपायरी निवडा · Pick an expiry date');
+      showToast(context, tr('एक्सपायरी निवडा · Pick an expiry date'));
       return;
     }
     final cost = _cost.text.trim().isEmpty ? null : double.tryParse(_cost.text);
     if (_cost.text.trim().isNotEmpty && cost == null) {
-      showToast(context, 'योग्य किंमत टाका · Enter a valid cost');
+      showToast(context, tr('योग्य किंमत टाका · Enter a valid cost'));
       return;
     }
 
@@ -194,12 +197,12 @@ class _StockInScreenState extends State<StockInScreen> {
         looseKg: _unit == _Unit.loose ? qty : 0,
       );
       if (mounted) {
-        showToast(context, 'साठा जोडला · Stock added');
+        showToast(context, tr('साठा जोडला · Stock added'));
         Navigator.pop(context);
       }
     } catch (_) {
       if (mounted) {
-        showToast(context, 'साठा जोडता आला नाही · Could not add stock');
+        showToast(context, tr('साठा जोडता आला नाही · Could not add stock'));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -232,7 +235,7 @@ class _StockInScreenState extends State<StockInScreen> {
   Widget _dateField(BuildContext context, {required bool required}) => Padding(
         padding: const EdgeInsets.only(bottom: 12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _label('एक्सपायरी · Expiry${required ? ' *' : ' (optional)'}'),
+          _label(tr('एक्सपायरी · Expiry${required ? ' *' : ' (optional)'}')),
           InkWell(
             onTap: () async {
               final d = await showDatePicker(
@@ -250,7 +253,7 @@ class _StockInScreenState extends State<StockInScreen> {
                   color: context.c.surface,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: context.c.line, width: 1.5)),
-              child: Text(_expiry == null ? 'निवडा' : dayShort(_expiry!),
+              child: Text(_expiry == null ? L('निवडा', 'Select') : dayShort(_expiry!),
                   style: TextStyle(
                       color: _expiry == null ? context.c.muted : context.c.ink,
                       fontWeight: FontWeight.w600)),
