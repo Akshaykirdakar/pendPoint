@@ -140,11 +140,15 @@ void main() {
     expect(ok.ok, isTrue);
     expect(ok.bill!.items.single.batchNo, 'FRESH'); // never the expired one
 
-    // Now try to oversell beyond the one remaining sellable batch.
-    app.addToCart(productId, SaleType.bag, 1);
+    // Now try to oversell beyond the one remaining sellable batch: only
+    // expired stock is left, so the product can't even be added to a bill.
+    expect(app.addToCart(productId, SaleType.bag, 1),
+        AppState.outOfStockMessage);
+    expect(app.cart, isEmpty);
     final fail = await app.finalizeSale();
     expect(fail.ok, isFalse);
-    expect(fail.error, contains('अपुरा साठा'));
+    expect(app.bills.where((b) => b.items.any((i) => i.batchNo == 'OLD')),
+        isEmpty, reason: 'the expired batch is never sold');
   });
 
   test('Voiding a bill credits stock back to the exact batch it was sold from',

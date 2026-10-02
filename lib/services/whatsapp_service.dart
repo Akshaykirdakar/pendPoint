@@ -91,10 +91,27 @@ class WhatsAppService {
       b.writeln('सूट / Discount: -${money(bill.discountTotal)}');
     }
     b.writeln('*एकूण / Grand total: ${money(bill.total)}*');
+    const modeName = {
+      PayMode.cash: 'रोख / Cash',
+      PayMode.upi: 'UPI',
+      PayMode.credit: 'उधार / Credit',
+    };
+    b.writeln('पेमेंट / Payment: '
+        '${bill.payments.where((p) => p.amount > 0).map((p) => modeName[p.mode]).join(' + ')}');
     if (bill.creditAmount > 0) {
       b
         ..writeln('भरले / Paid: ${money(bill.total - bill.creditAmount)}')
         ..writeln('बाकी (उधार) / Due: ${money(bill.creditAmount)}');
+    }
+    if (bill.previousDue > 0) {
+      b
+        ..writeln('------------------------------')
+        ..writeln('मागील बाकी / Previous due: ${money(bill.previousDue)}');
+      if (bill.dueCollected > 0) {
+        b.writeln(
+            'मागील बाकी जमा / Old due paid: -${money(bill.dueCollected)}');
+      }
+      b.writeln('*एकूण बाकी / Balance now: ${money(bill.balanceAfter)}*');
     }
     b.write('धन्यवाद! / Thank you 🙏');
     return b.toString();

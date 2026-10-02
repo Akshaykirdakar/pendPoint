@@ -7,6 +7,7 @@ import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 import 'customer_screen.dart';
+import 'payment_reminder_screen.dart';
 import '../../utils/lang.dart';
 
 class KhataScreen extends StatelessWidget {
@@ -30,6 +31,12 @@ class KhataScreen extends StatelessWidget {
             value: money(app.totalOutstanding),
             sub:
                 '👥 ${cs.where((x) => x.outstanding > 0).length}'),
+        const SizedBox(height: 12),
+        // Remind customers who owe money — one, several or all.
+        BigButton.brand(tr('🔔 उधार आठवण पाठवा · Send payment reminder'),
+            key: const ValueKey('khata-remind'),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const PaymentReminderScreen()))),
         const SizedBox(height: 16),
         if (app.historyLoading && cs.isEmpty)
           const HistoryLoadingNote()

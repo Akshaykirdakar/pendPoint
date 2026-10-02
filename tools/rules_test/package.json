@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "firebase emulators:exec --only firestore --project demo-pend-rules \"node purchase_rules.test.mjs\""
+    "test": "firebase emulators:exec --only firestore --project demo-pend-rules \"node purchase_rules.test.mjs && node draft_rules.test.mjs\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",

@@ -10,9 +10,9 @@ import '../widgets/pend_scaffold.dart';
 import '../widgets/pickers.dart';
 import '../widgets/tiles.dart';
 import 'cart_screen.dart';
+import 'draft_bills_screen.dart';
 import 'product_detail_screen.dart';
 import 'returns_screen.dart';
-import 'sales_entry_screen.dart';
 import 'scan_screen.dart';
 import '../../utils/lang.dart';
 
@@ -43,21 +43,26 @@ class _SellScreenState extends State<SellScreen> {
     }).toList();
 
     return PendScaffold(
-      titleMr: 'नवीन बिल',
-      titleEn: 'New Sale',
+      titleMr: 'विक्री',
+      titleEn: 'Sales',
       actions: [
         BarAction('🧾 ${L('बिल', 'Cart')}${cartN > 0 ? ' ($cartN)' : ''}',
             onTap: () => _push(context, const CartScreen())),
       ],
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // First and biggest: always a fresh, empty sale bill.
+        const NewSaleBillButton(key: ValueKey('sell-bill-entry')),
+        const SizedBox(height: 12),
         TileGrid(columns: 3, gap: 10, [
           BigTile(
-              key: const ValueKey('sell-bill-entry'),
-              icon: Icons.point_of_sale_rounded,
-              mr: 'नवीन बिल',
-              en: 'New bill',
-              color: context.c.accent,
-              onTap: () => _push(context, const SalesEntryScreen())),
+              key: const ValueKey('sell-drafts'),
+              icon: Icons.edit_note_rounded,
+              mr: 'ड्राफ्ट बिले',
+              en: 'Draft Bills',
+              color: context.c.warning,
+              badge: '📝 ${app.drafts.length}',
+              badgeColor: context.c.serious,
+              onTap: () => _push(context, const DraftBillsScreen())),
           BigTile(
               icon: Icons.qr_code_scanner_rounded,
               mr: 'QR स्कॅन',

@@ -3,6 +3,8 @@
 // phone, and fails if any app-generated text is in the other language or
 // if anything overflows. Customer, supplier, product, brand, branch, staff,
 // shop names and codes are data, so they are ignored wherever they appear.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -24,11 +26,13 @@ import 'package:pend_point/ui/screens/cart_screen.dart';
 import 'package:pend_point/ui/screens/catalogue_screen.dart';
 import 'package:pend_point/ui/screens/checkout_screen.dart';
 import 'package:pend_point/ui/screens/customer_screen.dart';
+import 'package:pend_point/ui/screens/draft_bills_screen.dart';
 import 'package:pend_point/ui/screens/history_screen.dart';
 import 'package:pend_point/ui/screens/party_edit_screen.dart';
 import 'package:pend_point/ui/screens/party_master_screen.dart';
 import 'package:pend_point/ui/screens/payment_method_transactions_screen.dart';
 import 'package:pend_point/ui/screens/payment_mix_screen.dart';
+import 'package:pend_point/ui/screens/payment_reminder_screen.dart';
 import 'package:pend_point/ui/screens/product_detail_screen.dart';
 import 'package:pend_point/ui/screens/product_edit_screen.dart';
 import 'package:pend_point/ui/screens/product_history_screen.dart';
@@ -53,7 +57,7 @@ import 'test_support.dart';
 
 /// Words that are the same in both languages in this shop (units, brands
 /// of payment/messaging apps, codes).
-const _neutral = ['kg', 'KG', 'UPI', 'QR', 'PIN', 'WhatsApp', 'PDF', 'Excel', 'GSTIN', 'Point', 'ID'];
+const _neutral = ['kg', 'KG', 'UPI', 'QR', 'PIN', 'WhatsApp', 'SMS', 'PDF', 'Excel', 'GSTIN', 'Point', 'ID'];
 
 final _dev = RegExp(r'[ऀ-ॿ]');
 final _latinWord = RegExp(r'[A-Za-z]{2,}');
@@ -179,11 +183,30 @@ final Map<String, _Case> _cases = {
   'checkout': (screen: (_) => const CheckoutScreen(), open: null, prep: (c) => c.app.addToCart(c.pid, SaleType.bag, 1)),
   'checkout party picker': (screen: (_) => const CheckoutScreen(), open: (_) => find.byKey(const ValueKey('checkout-party')), prep: (c) => c.app.addToCart(c.pid, SaleType.bag, 1)),
   'sales entry': (screen: (_) => const SalesEntryScreen(), open: null, prep: (c) => c.app.addToCart(c.pid, SaleType.bag, 1)),
-  'rate sheet': (screen: (_) => const SalesEntryScreen(), open: (_) => find.byKey(const ValueKey('sales-row-0-rate')), prep: (c) => c.app.addToCart(c.pid, SaleType.bag, 1)),
+  'rate sheet': (screen: (_) => const CartScreen(), open: (_) => find.byIcon(Icons.currency_rupee), prep: (c) => c.app.addToCart(c.pid, SaleType.bag, 1)),
   'product picker': (screen: (_) => const SalesEntryScreen(), open: (_) => find.byKey(const ValueKey('sales-next-product')), prep: null),
   'brand picker': (screen: (_) => const SalesEntryScreen(), open: (_) => find.byKey(const ValueKey('sales-brand-filter')), prep: null),
   'sales party picker': (screen: (_) => const SalesEntryScreen(), open: (_) => find.byKey(const ValueKey('sales-party')), prep: null),
+  'sales entry (split)': (screen: (_) => const SalesEntryScreen(), open: null, prep: (c) { c.app.addToCart(c.pid, SaleType.bag, 1); c.app.setCartCustomer('c1'); c.app.addSplitPayment(); }),
+  'sales entry (credit, no customer)': (screen: (_) => const SalesEntryScreen(), open: (_) => find.byKey(const ValueKey('sale-pay-credit')), prep: (c) => c.app.addToCart(c.pid, SaleType.bag, 1)),
+  'draft saved dialog': (screen: (_) => const SalesEntryScreen(), open: (_) => find.byKey(const ValueKey('sales-save-draft')), prep: (c) => c.app.addToCart(c.pid, SaleType.bag, 1)),
+  'sales entry (previous due added)': (screen: (_) => const SalesEntryScreen(), open: null, prep: (c) { c.app.setCartCustomer('c1'); c.app.addToCart(c.pid, SaleType.bag, 1); c.app.setDueCollect(500); }),
+  'bill saved (previous due)': (screen: (c) => BillScreen(billId: c.app.bills.first.id, justSaved: true), open: null, prep: null),
+  'payment reminder': (screen: (_) => const PaymentReminderScreen(), open: (_) => find.byKey(const ValueKey('remind-select-all')), prep: null),
+  'customer (reminder buttons)': (screen: (_) => const CustomerScreen(customerId: 'c1'), open: null, prep: null),
+  'draft bills': (screen: (_) => const DraftBillsScreen(), open: null, prep: _draft),
+  'draft delete dialog': (screen: (_) => const DraftBillsScreen(), open: (_) => find.byKey(const ValueKey('draft-delete-DRAFT1001')), prep: _draft),
+  'sales entry (draft)': (screen: (_) => const SalesEntryScreen(), open: null, prep: _draft),
+  'bills list (drafts)': (screen: (_) => const ReturnsScreen(), open: null, prep: _draft),
+  'checkout (draft)': (screen: (_) => const CheckoutScreen(), open: null, prep: _draft),
 };
+
+/// A saved draft (party, product) left open on screen.
+void _draft(_Ctx c) {
+  c.app.setCartCustomer('c1');
+  c.app.addToCart(c.pid, SaleType.bag, 1);
+  unawaited(c.app.saveDraft());
+}
 
 List<String> _findings(WidgetTester tester, AppLang lang, List<String> names) {
   final out = <String>{};

@@ -6,6 +6,7 @@ import '../models/bill.dart';
 import '../models/branch.dart';
 import '../models/brand.dart';
 import '../models/customer.dart';
+import '../models/draft_bill.dart';
 import '../models/enums.dart';
 import '../models/product.dart';
 import '../models/stock.dart';
@@ -65,11 +66,49 @@ class InMemoryRepository implements Repository {
   @override
   Future<int> nextPurchaseNumber() async => ++_purchaseCounter;
 
-  /// [AppState] validates every commit against its working copy before
-  /// calling this, and there is no other device to race with, so there is
-  /// nothing to persist or re-check here.
+  int _draftCounter = 1000;
+
+  /// Saved drafts, kept like a Firestore collection would (with versions)
+  /// so draft conflicts behave the same here as on a real backend.
+  final Map<String, DraftBill> drafts = {};
+
   @override
-  Future<void> commitStock(StockCommit commit) async {}
+  Future<List<DraftBill>> loadDrafts() async => drafts.values.toList();
+
+  @override
+  Future<int> nextDraftNumber() async => ++_draftCounter;
+
+  @override
+  Future<void> saveDraft(DraftBill draft, {int? expectedVersion}) async {
+    final stored = drafts[draft.id];
+    if (expectedVersion == null) {
+      if (stored != null) throw const DraftConflictException(missing: false);
+    } else if (stored == null) {
+      throw const DraftConflictException(missing: true);
+    } else if (stored.version != expectedVersion) {
+      throw const DraftConflictException(missing: false);
+    }
+    drafts[draft.id] = draft;
+  }
+
+  @override
+  Future<void> deleteDraft(String draftId) async => drafts.remove(draftId);
+
+  /// [AppState] validates every commit against its working copy before
+  /// calling this, and there is no other device to race with, so the only
+  /// thing kept here is the draft a sale finalizes.
+  @override
+  Future<void> commitStock(StockCommit commit) async {
+    final draftId = commit.finalizedDraftId;
+    if (draftId == null) return;
+    final stored = drafts[draftId];
+    if (stored == null) throw const StockCommitException(draftGoneMessage);
+    if (commit.finalizedDraftVersion != null &&
+        stored.version != commit.finalizedDraftVersion) {
+      throw const StockCommitException(draftChangedMessage);
+    }
+    drafts.remove(draftId);
+  }
 
   @override
   Future<void> upsertBrand(Brand brand) async {}
@@ -80,7 +119,8 @@ class InMemoryRepository implements Repository {
   @override
   Future<String> uploadBrandPhoto(
       String brandId, Uint8List bytes, String extension) async {
-    final path = 'brands/$brandId/logo_${DateTime.now().microsecondsSinceEpoch}.$extension';
+    final path =
+        'brands/$brandId/logo_${DateTime.now().microsecondsSinceEpoch}.$extension';
     photos[path] = bytes;
     return 'memory://$path';
   }

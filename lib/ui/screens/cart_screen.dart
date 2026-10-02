@@ -71,8 +71,12 @@ class CartScreen extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         BigButton.primary(tr('पेमेंट करा · Checkout — ${money(app.cartTotal)}'),
-            onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const CheckoutScreen()))),
+            key: const ValueKey('cart-checkout'),
+            onTap: app.shortLines.isNotEmpty
+                // Never sell more than is in stock.
+                ? () => showToast(context, AppState.shortStockMessage)
+                : () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const CheckoutScreen()))),
       ]),
     );
   }

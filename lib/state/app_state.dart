@@ -11,6 +11,7 @@ import '../models/bill.dart';
 import '../models/branch.dart';
 import '../models/brand.dart';
 import '../models/customer.dart';
+import '../models/draft_bill.dart';
 import '../models/enums.dart';
 import '../models/party.dart';
 import '../models/product.dart';
@@ -35,6 +36,19 @@ class SaleResult {
   const SaleResult.failure(this.error)
       : ok = false,
         bill = null;
+}
+
+/// Result of saving a draft bill.
+class DraftResult {
+  final bool ok;
+  final String? error;
+  final DraftBill? draft;
+  const DraftResult.success(DraftBill this.draft)
+      : ok = true,
+        error = null;
+  const DraftResult.failure(String this.error)
+      : ok = false,
+        draft = null;
 }
 
 /// Result of saving a purchase bill.
@@ -171,6 +185,7 @@ class AppState extends ChangeNotifier {
       batches = history.batches;
       purchases = List.of(history.purchases);
       await _migrateLegacyStockToBatches();
+      await refreshDrafts();
     } catch (error) {
       if (seq != _bootstrapSeq) return;
       historyError = error;
@@ -285,9 +300,34 @@ class AppState extends ChangeNotifier {
       cart.fold(0.0, (s, l) => s + (l.catalogRate - l.rate) * l.qty);
   double get cartTotal => cartSubtotal;
 
-  void addToCart(String productId, SaleType type, double qty, {double? rate}) {
+  static const outOfStockMessage =
+      '⛔ साठा नाही — हे उत्पादन विकता येणार नाही · Out of stock — this product cannot be sold';
+  static const shortStockMessage =
+      '⛔ पुरेसा साठा नाही — लाल ओळीतील प्रमाण कमी करा · Not enough stock — reduce the quantity on the red row';
+
+  /// Whether [productId] has anything sellable at the active branch (full
+  /// bags or loose kg from non-expired, non-blocked batches).
+  bool hasSellableStock(String productId) =>
+      sellableQty(productId, SaleType.kg) > 1e-9;
+
+  /// Indexes of bill lines asking for more than is sellable right now. A
+  /// bill with any of these can't go to Payment. (Not checked while a
+  /// finalized bill is corrected — its own stock comes back first.)
+  List<int> get shortLines => editingBillId != null
+      ? const []
+      : [
+          for (var i = 0; i < cart.length; i++)
+            if (cart[i].qty > sellableQty(cart[i].productId, cart[i].saleType) + 1e-9)
+              i,
+        ];
+
+  /// Adds a line to the bill. Refuses (returns [outOfStockMessage]) when
+  /// the product has no sellable stock at all; null when added.
+  String? addToCart(String productId, SaleType type, double qty,
+      {double? rate}) {
     final p = productOf(productId);
-    if (p == null) return;
+    if (p == null) return 'उत्पादन सापडले नाही · Product not found';
+    if (!hasSellableStock(productId)) return outOfStockMessage;
     final catalog = p.catalogRate(type == SaleType.bag);
     cart.add(CartLine(
       productId: productId,
@@ -296,36 +336,39 @@ class AppState extends ChangeNotifier {
       catalogRate: catalog,
       rate: rate ?? catalog,
     ));
-    notifyListeners();
+    _linesChanged();
+    return null;
   }
 
   void changeLineQty(int i, double delta) {
     final l = cart[i];
     final v = (l.qty + delta * l.step);
     l.qty = v < l.step ? l.step : double.parse(v.toStringAsFixed(2));
-    notifyListeners();
+    _linesChanged();
   }
 
   void setLineQty(int i, double qty) {
     cart[i].qty = qty <= 0 ? cart[i].step : qty;
-    notifyListeners();
+    _linesChanged();
   }
 
   void setLineRate(int i, double rate) {
     cart[i].rate = rate;
-    notifyListeners();
+    _linesChanged();
   }
 
   void removeLine(int i) {
     cart.removeAt(i);
-    notifyListeners();
+    _linesChanged();
   }
 
   /// Swaps the product on line [i] (sales entry grid), keeping the unit and
-  /// quantity and taking the new product's catalogue selling rate.
-  void replaceLineProduct(int i, String productId) {
+  /// quantity and taking the new product's catalogue selling rate. Refuses
+  /// an out-of-stock product (returns [outOfStockMessage]).
+  String? replaceLineProduct(int i, String productId) {
     final p = productOf(productId);
-    if (p == null) return;
+    if (p == null) return 'उत्पादन सापडले नाही · Product not found';
+    if (!hasSellableStock(productId)) return outOfStockMessage;
     final old = cart[i];
     final rate = p.catalogRate(old.isBag);
     cart[i] = CartLine(
@@ -334,7 +377,8 @@ class AppState extends ChangeNotifier {
         qty: old.qty,
         catalogRate: rate,
         rate: rate);
-    notifyListeners();
+    _linesChanged();
+    return null;
   }
 
   /// Switches line [i] between full bags and loose kg, at that unit's
@@ -351,7 +395,7 @@ class AppState extends ChangeNotifier {
         qty: type == SaleType.bag ? old.qty.ceilToDouble() : old.qty,
         catalogRate: rate,
         rate: rate);
-    notifyListeners();
+    _linesChanged();
   }
 
   /// What can be sold right now at the active branch — bags, or total kg
@@ -375,13 +419,63 @@ class AppState extends ChangeNotifier {
   }
 
   void setCartCustomer(String? id) {
+    if (id != cartCustomerId) cartDueCollect = 0;
     cartCustomerId = id;
-    notifyListeners();
+    _cartChanged();
+  }
+
+  // ---- previous due collected with the bill ----
+
+  /// Part of the customer's previous due they pay along with this bill
+  /// ("➕ add previous due to bill"); 0 = not added.
+  double cartDueCollect = 0;
+
+  /// The chosen customer's khata balance before this bill (0 if none).
+  double get cartPreviousDue {
+    final id = cartCustomerId;
+    if (id == null) return 0;
+    return customers.where((c) => c.id == id).firstOrNull?.outstanding ?? 0;
+  }
+
+  /// What the customer pays now: this bill + the previous due added to it.
+  double get cartPayable => cartTotal + cartDueCollect;
+
+  /// Adds [amount] of the previous due to this bill (clamped to what is
+  /// actually owed); 0 removes it.
+  void setDueCollect(double amount) {
+    final max = cartPreviousDue;
+    cartDueCollect = amount <= 0 ? 0 : (amount > max ? max : amount);
+    _cartChanged();
   }
 
   // ---- payments ----
   void ensurePayments() {
     if (payments.isEmpty) payments.add(Payment(PayMode.cash, cartTotal));
+  }
+
+  /// The bill is paid in more than one way (e.g. cash + credit).
+  bool get isSplitPayment => payments.length > 1;
+
+  /// The one payment mode of a non-split bill — Cash until chosen.
+  PayMode get saleMode =>
+      payments.isEmpty ? PayMode.cash : payments.first.mode;
+
+  /// 💵 Cash / 📱 UPI / 📝 Credit in one tap: the whole bill in that mode
+  /// (replaces any split). Credit still needs a customer to finalize.
+  void setSaleMode(PayMode mode) =>
+      _replacePayments([Payment(mode, PaymentSplit.rupees(PaymentSplit.paise(cartTotal)))]);
+
+  /// After a line change the payment rows follow the new total (the chosen
+  /// modes stay; the first row takes up the difference) — the amounts
+  /// entered never drift from the bill.
+  void _linesChanged() {
+    if (payments.isNotEmpty) {
+      final next = PaymentSplit.fit(payments, cartTotal);
+      payments
+        ..clear()
+        ..addAll(next);
+    }
+    _cartChanged();
   }
 
   /// Sets row [i]'s mode and/or amount. A typed amount is kept as typed
@@ -422,7 +516,7 @@ class AppState extends ChangeNotifier {
     payments
       ..clear()
       ..addAll(next);
-    notifyListeners();
+    _cartChanged();
   }
 
   void resetPayments() {
@@ -753,14 +847,32 @@ class AppState extends ChangeNotifier {
     if (hasCredit && cartCustomerId == null) {
       return 'उधारसाठी ग्राहक निवडा · Pick a customer for credit';
     }
+    if (cartDueCollect > 0 && editingBillId == null) {
+      if (cartCustomerId == null) {
+        return 'मागील बाकीसाठी ग्राहक निवडा · Pick the customer whose due is paid';
+      }
+      if (!payments.any((p) => p.mode != PayMode.credit && p.amount > 0) &&
+          payments.isNotEmpty &&
+          cartTotal > 0) {
+        return 'मागील बाकी जमा करण्यासाठी रोख / UPI निवडा · Choose Cash or UPI to collect the previous due';
+      }
+    }
     return null;
   }
 
-  void _clearCart() {
+  /// Empties the bill on screen and unlinks it from any draft — the next
+  /// bill starts completely fresh. Saved drafts are not touched.
+  void _resetCart() {
+    _autosave?.cancel();
+    _autosave = null;
     cart.clear();
     cartCustomerId = null;
     payments.clear();
     editingBillId = null;
+    _link = null;
+    cartDueCollect = 0;
+    cartDirty = false;
+    _billSeq++;
   }
 
   // ---- finalize sale (FEFO batch allocation + credit ledger) ----
@@ -775,6 +887,15 @@ class AppState extends ChangeNotifier {
       return const SaleResult.failure(
           'शाखा निवडलेली नाही · No branch selected');
     }
+    // Finalizing a draft: let a draft save that is still on its way land
+    // first, so the commit checks the version this phone really holds.
+    _autosave?.cancel();
+    _autosave = null;
+    await draftSavesSettled;
+    final link = _link;
+    // A draft holds no stock, so another sale may have used it meanwhile.
+    String stockError(_OpError e) =>
+        link == null ? e.message : '$_stockChangedSinceDraft\n${e.message}';
 
     // Dry run first so an unsellable cart fails before a bill number is
     // consumed (spec §19: fail the whole sale before anything is written).
@@ -782,7 +903,7 @@ class AppState extends ChangeNotifier {
       _sellLines(StockCommit(DateTime.now()), _StockSim(this), cart, branchId,
           '', null);
     } on _OpError catch (e) {
-      return SaleResult.failure(e.message);
+      return SaleResult.failure(stockError(e));
     }
 
     final int number;
@@ -798,8 +919,10 @@ class AppState extends ChangeNotifier {
     try {
       items = _sellLines(commit, _StockSim(this), cart, branchId, billId, null);
     } on _OpError catch (e) {
-      return SaleResult.failure(e.message);
+      return SaleResult.failure(stockError(e));
     }
+    commit.finalizedDraftId = link?.id;
+    commit.finalizedDraftVersion = link?.version;
     final cust = cartCustomerId == null
         ? null
         : customers.where((c) => c.id == cartCustomerId).firstOrNull;
@@ -816,8 +939,28 @@ class AppState extends ChangeNotifier {
       at: now,
       staffId: repo.currentUserId ?? owner.id,
       branchId: branchId,
+      previousDue: cust?.outstanding ?? 0,
+      dueCollected: cust == null
+          ? 0
+          : (cartDueCollect > cust.outstanding
+              ? cust.outstanding
+              : cartDueCollect),
     );
     commit.newBills.add(bill);
+    // The previous due paid with this bill: a khata payment received (not
+    // a sale), saved in the same commit — first, so it never counts
+    // against this bill's own credit.
+    if (bill.dueCollected > 0 && cust != null) {
+      commit.ledger.add(LedgerChange(
+          cust.id,
+          LedgerEntry(
+              type: 'repayment',
+              amount: bill.dueCollected,
+              billId: bill.id,
+              note: 'bill #$number',
+              at: now),
+          -bill.dueCollected));
+    }
     if (bill.creditAmount > 0 && cust != null) {
       commit.ledger.add(LedgerChange(
           cust.id,
@@ -831,12 +974,265 @@ class AppState extends ChangeNotifier {
     }
     final error = await _commit(commit);
     if (error != null) {
+      // Nothing was written — the draft (if any) is still there to retry.
       notifyListeners();
       return SaleResult.failure(error);
     }
-    _clearCart();
+    if (link != null) drafts.removeWhere((d) => d.id == link.id);
+    _resetCart();
     notifyListeners();
     return SaleResult.success(bill);
+  }
+
+  static const _stockChangedSinceDraft =
+      '⚠️ उपलब्ध साठा बदलला आहे. पुन्हा तपासा · Available stock has changed. Please check again.';
+
+  // ---- draft bills ----
+  //
+  // A draft is saved work: lines, party and the planned payment split. It
+  // never touches stock, payments, khata or reports — only finalizing it
+  // (the normal sale above) does, and that same commit removes the draft.
+
+  /// Every saved, unfinished bill (📝).
+  List<DraftBill> drafts = [];
+  Object? draftsError;
+
+  List<DraftBill> get draftsNewestFirst =>
+      List.of(drafts)..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
+  /// The draft the bill on screen was saved as or opened from; null for a
+  /// bill never saved as a draft. While set, changes save automatically.
+  _DraftLink? _link;
+  String? get currentDraftId => _link?.id;
+  String? get currentDraftLabel => _link == null ? null : 'D${_link!.number}';
+
+  /// The bill on screen changed since it was opened or last saved.
+  bool cartDirty = false;
+
+  /// Leaving the bill now would lose work (an edit of a finalized bill is
+  /// a separate workflow and never becomes a draft).
+  bool get hasUnsavedBill =>
+      editingBillId == null &&
+      cartDirty &&
+      (cart.isNotEmpty || cartCustomerId != null || _link != null);
+
+  /// How long after the last change a linked draft saves itself — typing a
+  /// quantity is one write, not one per keystroke.
+  static const autosaveDelay = Duration(seconds: 3);
+  Timer? _autosave;
+
+  // Bumped whenever the screen switches to a different bill; a save that
+  // finishes after the switch must not re-link the new bill.
+  int _billSeq = 0;
+  int _changeSeq = 0;
+
+  // Draft writes run one at a time, so each sees the version before it.
+  // Null when no write is queued — a lone save starts at once.
+  Future<void>? _draftLock;
+
+  /// Resolves once every queued draft save has finished.
+  Future<void> get draftSavesSettled => _draftLock ?? Future<void>.value();
+
+  void _cartChanged() {
+    if (editingBillId == null) {
+      cartDirty = true;
+      _changeSeq++;
+      if (_link != null) {
+        _autosave?.cancel();
+        _autosave = Timer(autosaveDelay, () {
+          _autosave = null;
+          if (_link != null && cartDirty) unawaited(saveDraft());
+        });
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<DraftResult> _locked(Future<DraftResult> Function() write) {
+    final prev = _draftLock;
+    final run = prev == null ? write() : prev.then((_) => write());
+    late final Future<void> tail;
+    tail = run.then<void>((_) {}, onError: (_) {}).whenComplete(() {
+      if (identical(_draftLock, tail)) _draftLock = null;
+    });
+    _draftLock = tail;
+    return run;
+  }
+
+  _BillSnap _snap() => _BillSnap(
+        lines: [
+          for (final l in cart)
+            DraftLine(
+                productId: l.productId,
+                saleType: l.saleType,
+                qty: l.qty,
+                catalogRate: l.catalogRate,
+                rate: l.rate),
+        ],
+        customerId: cartCustomerId,
+        payments: List.of(payments),
+        dueCollect: cartDueCollect,
+        billSeq: _billSeq,
+        changeSeq: _changeSeq,
+      );
+
+  /// Saves the bill on screen as a draft — a new one ("D…"), or the next
+  /// version of the draft it came from. Writes nothing else.
+  Future<DraftResult> saveDraft() {
+    _autosave?.cancel();
+    _autosave = null;
+    if (editingBillId != null) {
+      return Future.value(const DraftResult.failure(
+          'दुरुस्त होणारे बिल ड्राफ्ट होत नाही · A bill being corrected cannot be saved as a draft'));
+    }
+    // The snapshot is taken when the write runs, so it has the latest changes.
+    return _locked(() => _writeDraft(_snap(), live: true));
+  }
+
+  Future<DraftResult> _writeDraft(_BillSnap snap,
+      {_DraftLink? link, required bool live}) async {
+    link = live ? _link : link;
+    final now = DateTime.now();
+    final uid = repo.currentUserId;
+    final cust = snap.customerId == null ? null : partyOf(snap.customerId!);
+    DraftBill build(_DraftLink l, int version) => DraftBill(
+          id: l.id,
+          number: l.number,
+          customerId: snap.customerId,
+          customerName: cust?.name ?? '',
+          lines: snap.lines,
+          payments: snap.payments,
+          dueCollect: snap.dueCollect,
+          createdAt: l.createdAt,
+          updatedAt: now,
+          createdBy: l.createdBy,
+          updatedBy: uid,
+          version: version,
+        );
+    final DraftBill draft;
+    try {
+      if (link == null) {
+        final n = await repo.nextDraftNumber();
+        link = _DraftLink('DRAFT$n', n, 0, now, uid);
+        draft = build(link, 1);
+        await repo.saveDraft(draft);
+      } else {
+        draft = build(link, link.version + 1);
+        await repo.saveDraft(draft, expectedVersion: link.version);
+      }
+    } on DraftConflictException catch (e) {
+      // Nothing was overwritten. The bill stays on screen, unlinked, so
+      // "Save Draft" keeps it as a new draft.
+      if (live && _billSeq == snap.billSeq) _link = null;
+      final goneId = link?.id;
+      if (e.missing) drafts.removeWhere((d) => d.id == goneId);
+      notifyListeners();
+      return DraftResult.failure(e.missing
+          ? 'हा ड्राफ्ट दुसऱ्या फोनवर पूर्ण / हटवला गेला · This draft was finalized or deleted on another phone'
+          : 'हा ड्राफ्ट दुसऱ्या फोनवर बदलला आहे — तुमचे बदल नवीन ड्राफ्ट म्हणून सेव्ह करा · This draft was changed on another phone — save yours as a new draft');
+    } catch (e) {
+      return DraftResult.failure(_saveError(e));
+    }
+    link.version = draft.version;
+    final i = drafts.indexWhere((d) => d.id == draft.id);
+    if (i >= 0) {
+      drafts[i] = draft;
+    } else {
+      drafts.add(draft);
+    }
+    if (live && _billSeq == snap.billSeq) {
+      _link = link;
+      if (_changeSeq == snap.changeSeq) cartDirty = false;
+    }
+    notifyListeners();
+    return DraftResult.success(draft);
+  }
+
+  /// Keeps the bill on screen safe before the screen switches to another:
+  /// unsaved changes are saved as a draft (never carried over, never lost).
+  Future<DraftResult>? _detachCurrentBill() {
+    _autosave?.cancel();
+    _autosave = null;
+    if (!hasUnsavedBill) return null;
+    final snap = _snap();
+    final link = _link;
+    return _locked(() => _writeDraft(snap, link: link, live: false));
+  }
+
+  /// "+ नवीन बिल": opens a completely empty bill — no party, products,
+  /// rates or payment from any earlier bill. Saved drafts stay as they are;
+  /// a bill in progress with unsaved changes is first saved as a draft
+  /// (screens save it themselves first, so they can report a failure).
+  void startNewBill() {
+    _detachCurrentBill();
+    _resetCart();
+    notifyListeners();
+  }
+
+  /// Leaves the bill on screen without saving (after "Discard", or once it
+  /// was saved). Saved drafts are not touched.
+  void closeBill() {
+    _resetCart();
+    notifyListeners();
+  }
+
+  /// "▶ पुढे सुरू करा": loads draft [id] exactly as saved (party, lines,
+  /// units, bill rates, planned payment). It stays a draft until finalized.
+  String? openDraft(String id) {
+    final d = drafts.where((x) => x.id == id).firstOrNull;
+    if (d == null) return 'ड्राफ्ट सापडला नाही · Draft not found';
+    if (_link?.id == id && editingBillId == null) return null; // already open
+    _detachCurrentBill();
+    _resetCart();
+    for (final l in d.lines) {
+      cart.add(CartLine(
+          productId: l.productId,
+          saleType: l.saleType,
+          qty: l.qty,
+          catalogRate: l.catalogRate,
+          rate: l.rate));
+    }
+    cartCustomerId = d.customerId;
+    payments.addAll(d.payments);
+    // Never more than the customer owes today.
+    cartDueCollect = d.dueCollect > cartPreviousDue ? cartPreviousDue : d.dueCollect;
+    _link = _DraftLink(d.id, d.number, d.version, d.createdAt, d.createdBy);
+    notifyListeners();
+    return null;
+  }
+
+  /// "🗑 ड्राफ्ट हटवा" — removes only the draft; stock, khata, payments,
+  /// reports and finalized bills are untouched.
+  Future<String?> deleteDraft(String id) async {
+    if (_link?.id == id) _resetCart();
+    try {
+      await draftSavesSettled;
+      await repo.deleteDraft(id);
+    } catch (e) {
+      notifyListeners();
+      return _saveError(e);
+    }
+    drafts.removeWhere((d) => d.id == id);
+    notifyListeners();
+    return null;
+  }
+
+  /// Reloads drafts (another phone may have added or finished some).
+  Future<void> refreshDrafts() async {
+    try {
+      drafts = await repo.loadDrafts();
+      draftsError = null;
+    } catch (e) {
+      draftsError = e;
+      debugPrint('[pend] drafts load error: $e');
+    }
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _autosave?.cancel();
+    super.dispose();
   }
 
   // ---- edit bill ----
@@ -878,7 +1274,9 @@ class AppState extends ChangeNotifier {
     if (b == null) return 'बिल सापडले नाही · Bill not found';
     final why = whyBillNotEditable(b);
     if (why != null) return why;
-    cart.clear();
+    // A new bill in progress is kept as a draft, never mixed into the edit.
+    _detachCurrentBill();
+    _resetCart();
     for (final it in b.items) {
       final existing = cart
           .where((l) =>
@@ -910,7 +1308,7 @@ class AppState extends ChangeNotifier {
 
   /// Abandons an edit in progress (the original bill is untouched).
   void cancelEditBill() {
-    _clearCart();
+    _resetCart();
     notifyListeners();
   }
 
@@ -962,6 +1360,9 @@ class AppState extends ChangeNotifier {
       revision: rev,
       originalBillId: rootId,
       editedAt: now,
+      // The due paid with the original stays as recorded.
+      previousDue: orig.previousDue,
+      dueCollected: orig.dueCollected,
     );
     commit.newBills.add(bill);
     commit.billPatches.add(
@@ -993,7 +1394,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return SaleResult.failure(error);
     }
-    _clearCart();
+    _resetCart();
     notifyListeners();
     return SaleResult.success(bill);
   }
@@ -1020,6 +1421,18 @@ class AppState extends ChangeNotifier {
               note: 'void #${b.billNumber}',
               at: now),
           -b.creditAmount));
+    }
+    // The previous due "paid" with this bill goes back on the khata.
+    if (b.customerId != null && b.dueCollected > 0) {
+      commit.ledger.add(LedgerChange(
+          b.customerId!,
+          LedgerEntry(
+              type: 'credit-sale',
+              amount: b.dueCollected,
+              billId: b.id,
+              note: 'void #${b.billNumber}',
+              at: now),
+          b.dueCollected));
     }
     final error = await _commit(commit);
     notifyListeners();
@@ -1329,8 +1742,8 @@ class AppState extends ChangeNotifier {
       photoUrl = photoPath = null;
     } else if (photo.bytes != null) {
       try {
-        uploaded =
-            await repo.uploadPurchaseBillPhoto(id, photo.bytes!, photo.extension);
+        uploaded = await repo.uploadPurchaseBillPhoto(
+            id, photo.bytes!, photo.extension);
       } catch (_) {
         return const PurchaseResult.failure(
             'बिल फोटो अपलोड झाला नाही — पुन्हा प्रयत्न करा किंवा फोटो काढा · Bill photo upload failed — try again or remove the photo');
@@ -1871,7 +2284,8 @@ class AppState extends ChangeNotifier {
     final en = cleanName(name), mr = cleanName(nameMr);
     if (!hasOwnerRights) return const MasterResult.failure(_ownerOnlyMasters);
     if (en.isEmpty && mr.isEmpty) {
-      return const MasterResult.failure('ब्रँडचे नाव टाका · Enter the brand name');
+      return const MasterResult.failure(
+          'ब्रँडचे नाव टाका · Enter the brand name');
     }
     final existing = brandNamed(en, mr);
     if (existing != null) {
@@ -1916,7 +2330,8 @@ class AppState extends ChangeNotifier {
     if (!hasOwnerRights) return const MasterResult.failure(_ownerOnlyMasters);
     final en = cleanName(name), mr = cleanName(nameMr);
     if (en.isEmpty && mr.isEmpty) {
-      return const MasterResult.failure('ब्रँडचे नाव टाका · Enter the brand name');
+      return const MasterResult.failure(
+          'ब्रँडचे नाव टाका · Enter the brand name');
     }
     if (brandNamed(en, mr, id) != null) {
       return const MasterResult.failure(_dupBrand);
@@ -1996,7 +2411,10 @@ class AppState extends ChangeNotifier {
     final why = whyBrandNotDeletable(id);
     if (why != null) return why;
     final brand = brandOf(id)!;
-    final ids = [for (final p in products) if (p.brandId == id) p.id];
+    final ids = [
+      for (final p in products)
+        if (p.brandId == id) p.id
+    ];
     try {
       await repo.deleteBrand(id, productIds: ids);
     } catch (e) {
@@ -2183,7 +2601,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> resetSampleData() async {
     await bootstrap();
-    _clearCart();
+    _resetCart();
     notifyListeners();
   }
 
@@ -2324,4 +2742,34 @@ class _StockSim {
     }
     return null;
   }
+}
+
+/// Which saved draft the bill on screen belongs to; [version] is the one
+/// last read or written, checked on the next save.
+class _DraftLink {
+  final String id;
+  final int number;
+  int version;
+  final DateTime createdAt;
+  final String? createdBy;
+  _DraftLink(
+      this.id, this.number, this.version, this.createdAt, this.createdBy);
+}
+
+/// The bill on screen at one moment, for a draft save.
+class _BillSnap {
+  final List<DraftLine> lines;
+  final String? customerId;
+  final List<Payment> payments;
+  final double dueCollect;
+  final int billSeq;
+  final int changeSeq;
+  const _BillSnap({
+    required this.lines,
+    required this.customerId,
+    required this.payments,
+    required this.dueCollect,
+    required this.billSeq,
+    required this.changeSeq,
+  });
 }

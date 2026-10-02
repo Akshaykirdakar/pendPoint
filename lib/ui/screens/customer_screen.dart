@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../models/customer.dart';
 import '../../models/enums.dart';
+import '../../services/reminder_service.dart';
 import '../../state/app_state.dart';
 import '../../utils/formatters.dart';
 import '../../utils/theme.dart';
@@ -54,6 +56,26 @@ class CustomerScreen extends StatelessWidget {
                   width: 220,
                   child: BigButton.brand(tr('💵 पैसे जमा करा · Record payment'),
                       onTap: () => _repay(context, app, customerId))),
+              const SizedBox(height: 12),
+              // 🔔 Remind this customer of the due amount.
+              Row(children: [
+                Expanded(
+                  child: BigButton.ghost('🟢 WhatsApp',
+                      key: const ValueKey('customer-remind-whatsapp'),
+                      onTap: () => _remind(context, app, cu,
+                          ReminderChannel.whatsApp)),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: BigButton.ghost('💬 SMS',
+                      key: const ValueKey('customer-remind-sms'),
+                      onTap: () =>
+                          _remind(context, app, cu, ReminderChannel.sms)),
+                ),
+              ]),
+              const SizedBox(height: 4),
+              Text(tr('🔔 बाकीची आठवण पाठवा · Send a payment reminder'),
+                  style: TextStyle(fontSize: 11.5, color: c.muted)),
             ],
           ]),
         ),
@@ -100,6 +122,31 @@ class CustomerScreen extends StatelessWidget {
         ]),
       ]),
     );
+  }
+
+  /// Opens WhatsApp / SMS with a reminder of [cu]'s due amount — the
+  /// shopkeeper presses Send. Says so when there's no mobile number.
+  Future<void> _remind(BuildContext context, AppState app, Customer cu,
+      ReminderChannel channel) async {
+    if (!ReminderService.hasValidMobile(cu.mobile)) {
+      showToast(context,
+          tr('ग्राहकाचा मोबाइल नंबर उपलब्ध नाही · Customer mobile number is not available.'));
+      return;
+    }
+    final ok = await ReminderService.open(
+        channel,
+        cu.mobile,
+        ReminderService.message(
+            shopName: app.settings.shop,
+            customerName: cu.name,
+            due: cu.outstanding));
+    if (!ok && context.mounted) {
+      showToast(
+          context,
+          channel == ReminderChannel.whatsApp
+              ? tr('WhatsApp उघडता आले नाही · Could not open WhatsApp')
+              : tr('SMS उघडता आले नाही · Could not open SMS'));
+    }
   }
 
   void _repay(BuildContext context, AppState app, String id) {

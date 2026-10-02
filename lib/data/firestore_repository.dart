@@ -47,6 +47,7 @@ import '../models/bill.dart';
 import '../models/branch.dart';
 import '../models/brand.dart';
 import '../models/customer.dart';
+import '../models/draft_bill.dart';
 import '../models/enums.dart';
 import '../models/product.dart';
 import '../models/purchase.dart';
@@ -270,6 +271,44 @@ class FirestoreRepository implements Repository {
     });
   }
 
+  // ---- draft bills: draftBills/{draftId}, version-checked on every save ----
+  @override
+  Future<List<DraftBill>> loadDrafts() async {
+    final snap = await db.collection('draftBills').get();
+    return [for (final d in snap.docs) DraftBill.fromMap(d.id, d.data())];
+  }
+
+  @override
+  Future<int> nextDraftNumber() async {
+    final ref = db.doc('meta/counters');
+    return db.runTransaction<int>((tx) async {
+      final snap = await tx.get(ref);
+      final next = ((snap.data()?['draft'] ?? 1000) as int) + 1;
+      tx.set(ref, {'draft': next}, SetOptions(merge: true));
+      return next;
+    });
+  }
+
+  @override
+  Future<void> saveDraft(DraftBill draft, {int? expectedVersion}) async {
+    final ref = db.collection('draftBills').doc(draft.id);
+    await db.runTransaction<void>((tx) async {
+      final snap = await tx.get(ref);
+      if (expectedVersion == null) {
+        if (snap.exists) throw const DraftConflictException(missing: false);
+      } else if (!snap.exists) {
+        throw const DraftConflictException(missing: true);
+      } else if ((snap.data()?['version'] ?? 1) != expectedVersion) {
+        throw const DraftConflictException(missing: false);
+      }
+      tx.set(ref, draft.toMap());
+    });
+  }
+
+  @override
+  Future<void> deleteDraft(String draftId) =>
+      db.collection('draftBills').doc(draftId).delete();
+
   /// See [Repository.commitStock]. One Firestore transaction: every read
   /// happens first (batches, legacy stock, customers, bills/purchases being
   /// patched), then validation against those fresh values, then all writes.
@@ -304,6 +343,17 @@ class FirestoreRepository implements Repository {
       for (final p in c.purchasePatches) {
         purchaseSnaps[p.id] =
             await tx.get(db.collection('purchases').doc(p.id));
+      }
+      final draftRef = c.finalizedDraftId == null
+          ? null
+          : db.collection('draftBills').doc(c.finalizedDraftId);
+      if (draftRef != null) {
+        final draft = await tx.get(draftRef);
+        if (!draft.exists) throw const StockCommitException(draftGoneMessage);
+        if (c.finalizedDraftVersion != null &&
+            (draft.data()?['version'] ?? 1) != c.finalizedDraftVersion) {
+          throw const StockCommitException(draftChangedMessage);
+        }
       }
 
       // ---- validate against the fresh values ----
@@ -423,6 +473,7 @@ class FirestoreRepository implements Repository {
       }
       outstanding.forEach((id, v) => tx.update(
           db.collection('customers').doc(id), {'outstandingBalance': v}));
+      if (draftRef != null) tx.delete(draftRef);
     });
   }
 
@@ -448,11 +499,14 @@ class FirestoreRepository implements Repository {
   Future<String> uploadBrandPhoto(
       String brandId, Uint8List bytes, String extension) async {
     final ext = extension.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
-    final safe = const {'jpg', 'jpeg', 'png', 'webp'}.contains(ext) ? ext : 'jpg';
-    final ref = storage
-        .ref('brands/$brandId/logo_${DateTime.now().millisecondsSinceEpoch}.$safe');
-    await ref.putData(bytes,
-        SettableMetadata(contentType: 'image/${safe == 'jpg' ? 'jpeg' : safe}'));
+    final safe =
+        const {'jpg', 'jpeg', 'png', 'webp'}.contains(ext) ? ext : 'jpg';
+    final ref = storage.ref(
+        'brands/$brandId/logo_${DateTime.now().millisecondsSinceEpoch}.$safe');
+    await ref.putData(
+        bytes,
+        SettableMetadata(
+            contentType: 'image/${safe == 'jpg' ? 'jpeg' : safe}'));
     return ref.getDownloadURL();
   }
 

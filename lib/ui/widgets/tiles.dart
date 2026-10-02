@@ -123,7 +123,10 @@ class TileGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, box) {
       final cols = columns ?? (box.maxWidth >= 560 ? 4 : (box.maxWidth >= 420 ? 3 : 2));
-      final w = (box.maxWidth - gap * (cols - 1)) / cols;
+      // Never negative: during a page transition or in a very narrow
+      // window the space can briefly be smaller than the gaps.
+      final w = ((box.maxWidth - gap * (cols - 1)) / cols)
+          .clamp(0.0, double.infinity);
       return Wrap(
         spacing: gap,
         runSpacing: gap,

@@ -121,13 +121,31 @@ class ProductDetailScreen extends StatelessWidget {
           ]),
         ),
         SectionHeader(tr('विक्री प्रकार · Sale type')),
+        // Nothing sellable (or no full bag) → that way of selling is off.
+        if (!app.hasSellableStock(productId))
+          Container(
+            key: const ValueKey('product-out-of-stock'),
+            padding: const EdgeInsets.all(12),
+            margin: const EdgeInsets.only(bottom: 10),
+            decoration: BoxDecoration(
+                color: c.critical.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12)),
+            child: Text(tr(AppState.outOfStockMessage),
+                style: TextStyle(fontWeight: FontWeight.w800, color: c.ink)),
+          ),
         BigButton.primary(
             tr('🛍️ पूर्ण गोणी · Add full bag — ${money(p.fullBagPrice)}'),
-            onTap: () => _addSheet(context, app, productId, SaleType.bag)),
+            key: const ValueKey('product-add-bag'),
+            onTap: app.sellableQty(productId, SaleType.bag) < 1
+                ? null
+                : () => _addSheet(context, app, productId, SaleType.bag)),
         const SizedBox(height: 10),
         BigButton.ghost(
             tr('⚖️ किलोने · Sell by weight — ${money(p.perKgPrice)}/kg'),
-            onTap: () => _addSheet(context, app, productId, SaleType.kg)),
+            key: const ValueKey('product-add-kg'),
+            onTap: !app.hasSellableStock(productId)
+                ? null
+                : () => _addSheet(context, app, productId, SaleType.kg)),
       ]),
     );
   }
@@ -207,7 +225,23 @@ class ProductDetailScreen extends StatelessWidget {
                       tr('बिलात जोडा · Add to bill (${money(rate * (double.tryParse(controller.text) ?? qty))})'),
                       onTap: () {
                     final q = double.tryParse(controller.text) ?? qty;
-                    app.addToCart(pid, type, q);
+                    // Never more than is sellable right now.
+                    final left = app.sellableQty(pid, type);
+                    if (q > left + 1e-9) {
+                      showToast(
+                          ctx,
+                          isBag
+                              ? L('⛔ फक्त ${left.floor()} गोणी साठा आहे',
+                                  '⛔ Only ${left.floor()} bags in stock')
+                              : L('⛔ फक्त ${kg(left)} साठा आहे',
+                                  '⛔ Only ${kg(left)} in stock'));
+                      return;
+                    }
+                    final error = app.addToCart(pid, type, q);
+                    if (error != null) {
+                      showToast(ctx, error);
+                      return;
+                    }
                     Navigator.pop(ctx);
                     Navigator.of(context).pushReplacement(
                         MaterialPageRoute(builder: (_) => const CartScreen()));

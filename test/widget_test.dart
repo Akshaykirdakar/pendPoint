@@ -11,11 +11,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(PendApp), findsOneWidget);
-    expect(find.text('New Sale'), findsOneWidget);
+    expect(find.text('New Sale Bill'), findsWidgets);
 
     await tester.tap(find.text('विक्री'));
     await tester.pumpAndSettle();
-    expect(find.text('New Sale'), findsOneWidget);
+    expect(find.text('New Sale Bill'), findsWidgets);
 
     await tester.tap(find.text('साठा'));
     await tester.pumpAndSettle();

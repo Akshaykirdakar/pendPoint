@@ -88,34 +88,39 @@ void main() {
     expect(app.stockOf('p1').bags, before + 10);
   });
 
-  testWidgets('Sales entry → checkout → "Bill saved" with Edit/Void/WhatsApp',
+  testWidgets('New Sale Bill: customer → product → qty → Add → Finalize → Bill saved',
       (tester) async {
     final app = await _pump(tester, const SalesEntryScreen());
 
     await _pick(tester, const ValueKey('sales-party'), '9822011'); // by mobile
     expect(app.cartCustomerId, 'c1');
+    expect(find.byKey(const ValueKey('sale-customer-info')), findsOneWidget);
 
+    // Product goes into the entry (not the bill) until "+ Add Item".
     await _pick(tester, const ValueKey('sales-next-product'), 'milk');
-    expect(app.cart, hasLength(1));
-    expect(find.byKey(const ValueKey('sales-row-0')), findsOneWidget);
-    // The next empty row is always there.
-    expect(find.byKey(const ValueKey('sales-next-product')), findsOneWidget);
-
-    await tester.enterText(find.byKey(const ValueKey('sales-row-0-qty')), '3');
+    expect(app.cart, isEmpty);
+    await tester.enterText(find.byKey(const ValueKey('sale-entry-qty')), '3');
     await tester.pump();
     final rate = app.productOf('p1')!.fullBagPrice;
+    expect(tester.widget<TextField>(find.byKey(const ValueKey('sale-entry-rate'))).controller!.text,
+        rate.toStringAsFixed(0));
+    expect(tester.widget<TextField>(find.byKey(const ValueKey('sale-entry-amount'))).controller!.text,
+        (3 * rate).toStringAsFixed(0));
+    await tester.tap(find.byKey(const ValueKey('sale-add-item')));
+    await tester.pumpAndSettle();
     expect(app.cart.single.qty, 3);
     expect(app.cartTotal, 3 * rate);
+    expect(find.byKey(const ValueKey('sales-row-0')), findsOneWidget);
 
     await _pick(tester, const ValueKey('sales-next-product'), 'kargil');
+    await tester.tap(find.byKey(const ValueKey('sale-add-item')));
+    await tester.pumpAndSettle();
     expect(app.cart, hasLength(2));
     await tester.tap(find.byKey(const ValueKey('sales-row-1-remove')));
     await tester.pumpAndSettle();
     expect(app.cart, hasLength(1));
 
-    await tester.tap(find.byKey(const ValueKey('sales-next')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('checkout-save')));
+    await tester.tap(find.byKey(const ValueKey('sales-finalize')));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('बिल सेव्ह झाले'), findsOneWidget);
@@ -124,8 +129,10 @@ void main() {
     expect(find.text('#${bill.billNumber}'), findsOneWidget);
     expect(find.text('रमेश पाटील'), findsOneWidget);
     for (final k in [
+      'bill-new-sale',
       'bill-print',
       'bill-whatsapp',
+      'bill-sms',
       'bill-share',
       'bill-edit',
       'bill-void'
@@ -133,7 +140,7 @@ void main() {
       expect(find.byKey(ValueKey(k)), findsOneWidget, reason: k);
     }
 
-    // Edit is right there — opens the bill in the entry grid.
+    // Edit is right there — opens the bill in the sale screen.
     await tester.ensureVisible(find.byKey(const ValueKey('bill-edit')));
     await tester.tap(find.byKey(const ValueKey('bill-edit')));
     await tester.pumpAndSettle();

@@ -147,36 +147,53 @@ void main() {
   testWidgets(
       'UI: a changed rate is marked "for this bill" with the master price',
       (tester) async {
-    tester.view.physicalSize = const Size(360, 1400);
+    tester.view.physicalSize = const Size(360, 1600);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final a = (await tester.runAsync(bootedApp))!;
     a.settings.gateOverride = false;
     final id = (await tester.runAsync(() => _samruddhi(a)))!;
-    a.addToCart(id, SaleType.kg, 25);
     await tester.pumpWidget(ChangeNotifierProvider.value(
         value: a,
         child: MaterialApp(
             theme: buildTheme(Brightness.light),
             home: const SalesEntryScreen())));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('sales-row-0-bill-rate')), findsNothing);
 
-    await tester.tap(find.byKey(const ValueKey('sales-row-0-rate')));
+    await tester.tap(find.byKey(const ValueKey('sales-next-product')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('rate-sheet-bill-only')), findsOneWidget);
-    await tester.enterText(find.byType(TextField).last, '40');
-    await tester.tap(find.textContaining('लागू करा'));
+    await tester.enterText(
+        find.byKey(const ValueKey('picker-search')), 'Samruddhi');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('picker-option-0')));
+    await tester.pumpAndSettle();
+    // Sale rate comes from the product master.
+    await tester.tap(find.text('kg').last);
+    await tester.pumpAndSettle();
+    final rateField = find.byKey(const ValueKey('sale-entry-rate'));
+    expect(tester.widget<TextField>(rateField).controller!.text, '42');
+
+    await tester.enterText(find.byKey(const ValueKey('sale-entry-qty')), '25');
+    await tester.enterText(rateField, '40');
+    await tester.pump();
+    expect(find.textContaining('Rate for this bill only'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('sale-add-item')));
     await tester.pumpAndSettle();
 
+    expect(a.cart.single.productId, id);
     expect(a.cart.single.rate, 40);
+    expect(a.cart.single.catalogRate, 42);
     expect(a.productOf(id)!.perKgPrice, 42);
     final note = tester
         .widget<Text>(find.byKey(const ValueKey('sales-row-0-bill-rate')))
         .data!;
-    expect(note, contains('₹40'));
     expect(note, contains('₹42'));
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('sales-row-0-qty-rate')))
+            .data,
+        contains('₹40'));
     expect(
         tester
             .widget<Text>(find.byKey(const ValueKey('sales-row-0-amount')))

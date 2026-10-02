@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart' show SharePlus, ShareParams;
 import '../../models/bill.dart';
 import '../../models/enums.dart';
 import '../../services/thermal_printer_service.dart';
+import '../../services/sms_service.dart';
 import '../../services/whatsapp_service.dart';
 import '../../state/app_state.dart';
 import '../../utils/formatters.dart';
@@ -16,6 +17,7 @@ import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 import '../widgets/tiles.dart';
+import 'draft_bills_screen.dart';
 import 'sales_entry_screen.dart';
 import '../../utils/lang.dart';
 
@@ -151,6 +153,12 @@ class _BillScreenState extends State<BillScreen> {
                 bill.customerName.isEmpty ? tr('रोख ग्राहक · Walk-in') : bill.customerName),
             fact(tr('दिनांक · Date'), dateTimeShort(bill.at)),
             fact(tr('एकूण · Total'), money(bill.total), big: true),
+            if (bill.dueCollected > 0) ...[
+              fact(tr('+ मागील बाकी जमा · Old due paid'),
+                  money(bill.dueCollected)),
+              fact(tr('एकूण घेतले · Received now'),
+                  money(bill.total - bill.creditAmount + bill.dueCollected)),
+            ],
           ]),
         ),
         if (replacement != null) ...[
@@ -160,8 +168,14 @@ class _BillScreenState extends State<BillScreen> {
                   MaterialPageRoute(
                       builder: (_) => BillScreen(billId: replacement.id)))),
         ],
+        if (widget.justSaved && !voided) ...[
+          const SizedBox(height: 12),
+          // Next customer: always a completely fresh bill.
+          const NewSaleBillButton(
+              key: ValueKey('bill-new-sale'), replace: true),
+        ],
         const SizedBox(height: 12),
-        TileGrid(columns: 3, gap: 10, [
+        TileGrid(columns: 2, gap: 10, [
           BigTile(
               key: const ValueKey('bill-print'),
               icon: Icons.print_rounded,
@@ -176,6 +190,13 @@ class _BillScreenState extends State<BillScreen> {
               en: 'Send',
               color: const Color(0xFF25D366), // WhatsApp green
               onTap: () => _sendWhatsApp(context, app, bill, mobile)),
+          BigTile(
+              key: const ValueKey('bill-sms'),
+              icon: Icons.sms_rounded,
+              mr: 'SMS',
+              en: 'Message',
+              color: c.brand,
+              onTap: () => _sendSms(context, app, bill, mobile)),
           BigTile(
               key: const ValueKey('bill-share'),
               icon: Icons.share_rounded,
@@ -195,6 +216,15 @@ class _BillScreenState extends State<BillScreen> {
                       'No party mobile — pick the chat in WhatsApp'),
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 11.5, color: c.muted)),
+        ),
+        // No secure hosted bill page exists yet, so there is no link to
+        // send — the button stays off rather than share a fake one.
+        const SizedBox(height: 6),
+        OutlinedButton.icon(
+          key: const ValueKey('bill-link'),
+          onPressed: null,
+          icon: const Icon(Icons.link_rounded),
+          label: Text(tr('🔗 बिल लिंक — लवकरच उपलब्ध · Bill Link — not available yet')),
         ),
         if (!voided) ...[
           SectionHeader(tr('दुरुस्ती · Corrections')),
@@ -279,6 +309,20 @@ class _BillScreenState extends State<BillScreen> {
                     li(tr('भरले · Paid'), money(bill.total - bill.creditAmount)),
                     li(tr('बाकी · Outstanding'), money(bill.creditAmount), bold: true),
                   ],
+                  // The customer's khata: old due, what was paid towards it
+                  // with this bill, and the balance after this bill.
+                  if (bill.previousDue > 0) ...[
+                    dashes(),
+                    li(tr('मागील बाकी · Previous due'), money(bill.previousDue)),
+                    if (bill.dueCollected > 0)
+                      li(tr('मागील बाकी जमा · Old due paid'),
+                          '–${money(bill.dueCollected)}'),
+                    if (bill.creditAmount > 0)
+                      li(tr('+ या बिलाचे उधार · This bill on credit'),
+                          money(bill.creditAmount)),
+                    li(tr('एकूण बाकी · Balance now'), money(bill.balanceAfter),
+                        bold: true),
+                  ],
                   const SizedBox(height: 8),
                   Center(
                       child: Text(tr('धन्यवाद! · Thank you 🙏'),
@@ -318,26 +362,30 @@ class _BillScreenState extends State<BillScreen> {
     }
   }
 
+  /// Opens the phone's SMS app with the bill text for the customer — the
+  /// shopkeeper presses Send. Says so when there's no mobile number.
+  Future<void> _sendSms(
+      BuildContext context, AppState app, Bill bill, String mobile) async {
+    if (SmsService.smsUri(mobile, '') == null) {
+      showToast(context,
+          tr('ग्राहकाचा मोबाइल नंबर उपलब्ध नाही · Customer mobile number is not available.'));
+      return;
+    }
+    final opened =
+        await SmsService.open(mobile: mobile, message: _message(app, bill));
+    if (!opened && context.mounted) {
+      showToast(context,
+          tr('SMS उघडता आले नाही · Could not open SMS — use Share instead'));
+    }
+  }
+
   /// Loads the bill into the sales grid for correction.
   Future<void> _startEdit(BuildContext context, AppState app, String id) async {
-    if (app.cart.isNotEmpty && app.editingBillId != id) {
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(tr('सध्याचे बिल रिकामे होईल · Clear current cart?')),
-          content: Text(
-              tr('चालू बिलातील उत्पादने काढून हे बिल दुरुस्तीसाठी उघडेल · The items in the current cart will be cleared to edit this bill.')),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: Text(tr('नाही · No'))),
-            FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: Text(tr('हो · Continue'))),
-          ],
-        ),
-      );
-      if (ok != true) return;
+    // A new bill in progress is kept as a draft — never mixed into the
+    // correction of a finalized bill (that is the revision workflow).
+    if (app.editingBillId != id &&
+        (!await keepCurrentBill(context) || !context.mounted)) {
+      return;
     }
     final error = app.beginEditBill(id);
     if (!context.mounted) return;

@@ -6,6 +6,7 @@ import '../models/bill.dart';
 import '../models/branch.dart';
 import '../models/brand.dart';
 import '../models/customer.dart';
+import '../models/draft_bill.dart';
 import '../models/enums.dart';
 import '../models/product.dart';
 import '../models/purchase.dart';
@@ -115,6 +116,24 @@ abstract class Repository {
   Future<int> nextBillNumber();
   Future<int> nextPurchaseNumber();
 
+  // ---- draft bills (unfinished sales; no stock/payment/khata effect) ----
+
+  /// Every saved draft bill (any order).
+  Future<List<DraftBill>> loadDrafts();
+
+  /// The next draft number ("D…") — a separate counter from bill numbers,
+  /// so drafts never use up a real bill number.
+  Future<int> nextDraftNumber();
+
+  /// Writes [draft]. With [expectedVersion] null the draft must be new;
+  /// otherwise the stored copy must still be at [expectedVersion] (and
+  /// [draft] carries expectedVersion + 1). Throws [DraftConflictException]
+  /// — writing nothing — when the stored copy is missing or newer.
+  Future<void> saveDraft(DraftBill draft, {int? expectedVersion});
+
+  /// Deletes a draft (no stock, payment or khata is touched).
+  Future<void> deleteDraft(String draftId);
+
   /// Commits one stock-affecting business operation (sale, void, bill edit,
   /// purchase, purchase void/edit, stock-in, return) atomically: batch
   /// quantity deltas are applied to the CURRENT stored values (never a
@@ -129,7 +148,8 @@ abstract class Repository {
   /// Deletes brand [brandId] together with [productIds] (its products —
   /// the caller has checked they hold no stock and have no history) in ONE
   /// atomic write, so a product is never left without its brand.
-  Future<void> deleteBrand(String brandId, {List<String> productIds = const []});
+  Future<void> deleteBrand(String brandId,
+      {List<String> productIds = const []});
 
   /// Uploads an (optional) brand logo/photo to `brands/{brandId}/…` in
   /// Storage and returns its download URL.

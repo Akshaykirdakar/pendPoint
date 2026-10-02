@@ -101,6 +101,14 @@ class Bill {
   final String? replacedByBillId; // set on a version superseded by an edit
   final DateTime? editedAt;
 
+  /// The customer's khata balance just before this bill (0 for walk-in).
+  final double previousDue;
+
+  /// Part of [previousDue] the customer paid along with this bill. It is a
+  /// khata payment received, not a sale: [total], [payments] and the sales
+  /// reports cover this bill's items only.
+  final double dueCollected;
+
   const Bill({
     required this.id,
     required this.billNumber,
@@ -119,7 +127,13 @@ class Bill {
     this.originalBillId,
     this.replacedByBillId,
     this.editedAt,
+    this.previousDue = 0,
+    this.dueCollected = 0,
   });
+
+  /// What the customer owed before this bill, still owed after it, plus
+  /// this bill's credit part.
+  double get balanceAfter => previousDue - dueCollected + creditAmount;
 
   bool get isRevised => revision > 0;
   bool get wasReplaced => replacedByBillId != null;
@@ -146,6 +160,8 @@ class Bill {
         originalBillId: originalBillId,
         replacedByBillId: replacedByBillId ?? this.replacedByBillId,
         editedAt: editedAt,
+        previousDue: previousDue,
+        dueCollected: dueCollected,
       );
 
   Map<String, dynamic> toMap() => {
@@ -164,6 +180,8 @@ class Bill {
         'originalBillId': originalBillId,
         'replacedByBillId': replacedByBillId,
         'editedAt': editedAt?.toIso8601String(),
+        'previousDue': previousDue,
+        'dueCollected': dueCollected,
         // billItems are a subcollection in Firestore — see FirestoreRepository.
       };
 
@@ -191,5 +209,7 @@ class Bill {
         editedAt: m['editedAt'] != null
             ? DateTime.tryParse(m['editedAt'] as String)
             : null,
+        previousDue: (m['previousDue'] ?? 0).toDouble(),
+        dueCollected: (m['dueCollected'] ?? 0).toDouble(),
       );
 }

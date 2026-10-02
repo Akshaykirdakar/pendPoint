@@ -81,6 +81,26 @@ service cloud.firestore {
       match /purchaseItems/{itemId} { allow read, create: if isStaff(); allow update, delete: if false; }
     }
 
+    // Draft bills: unfinished sales — saved work only, with no stock,
+    // payment or khata effect (those are written only when the sale is
+    // finalized, as a normal bill). Same people who may create bills may
+    // keep drafts. Every save must carry the next version number, so a
+    // phone holding an older copy cannot overwrite newer changes. A draft
+    // is deleted when finalized (inside the sale transaction) or by hand.
+    match /draftBills/{draftId} {
+      function validDraft() {
+        let d = request.resource.data;
+        return d.status == 'draft' && d.number is int && d.version is int
+          && d.lines is list && d.payments is list;
+      }
+      allow read: if isStaff();
+      allow create: if isStaff() && validDraft() && request.resource.data.version == 1;
+      allow update: if isStaff() && validDraft()
+        && request.resource.data.version == resource.data.version + 1
+        && request.resource.data.number == resource.data.number;
+      allow delete: if isStaff();
+    }
+
     // Customers / khata: staff manage.
     match /customers/{cid} {
       allow read, write: if isStaff();

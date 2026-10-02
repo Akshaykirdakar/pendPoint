@@ -55,8 +55,8 @@ void main() {
       (tester) async {
     await _pumpShell(tester, AppLang.mr);
     expect(find.byKey(const ValueKey('home-new-bill')), findsOneWidget);
-    expect(find.text('नवीन बिल'), findsOneWidget);
-    expect(find.text('New Sale'), findsNothing);
+    expect(find.text('नवीन विक्री बिल'), findsOneWidget);
+    expect(find.text('New Sale Bill'), findsNothing);
     expect(find.text('खरेदी'), findsOneWidget);
     expect(find.text('Purchase'), findsNothing);
     expect(find.text('मुख्य'), findsOneWidget); // bottom tab
@@ -65,8 +65,8 @@ void main() {
 
   testWidgets('English only: tiles, tabs and titles in English', (tester) async {
     await _pumpShell(tester, AppLang.en);
-    expect(find.text('New Sale'), findsOneWidget);
-    expect(find.text('नवीन बिल'), findsNothing);
+    expect(find.text('New Sale Bill'), findsOneWidget);
+    expect(find.text('नवीन विक्री बिल'), findsNothing);
     expect(find.text('Home'), findsOneWidget);
     expect(find.text('मुख्य'), findsNothing);
   });

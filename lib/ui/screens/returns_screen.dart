@@ -10,11 +10,13 @@ import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
 import 'bill_screen.dart';
+import 'draft_bills_screen.dart';
 import 'sales_entry_screen.dart';
 import '../../utils/lang.dart';
 
-/// Saved bills — search by bill no. or party (code / name / mobile), open,
-/// edit, partially return or void. Bills are never deleted: void and edit
+/// Bills — 📝 drafts (unfinished, no effect yet) first, then ✅ final
+/// bills: search by bill no. or party (code / name / mobile), open, edit,
+/// partially return or void. Final bills are never deleted: void and edit
 /// keep the original, marked, for the audit trail.
 class ReturnsScreen extends StatefulWidget {
   const ReturnsScreen({super.key});
@@ -45,10 +47,22 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
     }).toList()
       ..sort((a, b) => b.at.compareTo(a.at));
     final recent = bills.take(q.isEmpty ? 30 : 100).toList();
+    final drafts = app.draftsNewestFirst.where((d) {
+      if (q.isEmpty) return true;
+      if (d.label.toLowerCase() == q || '${d.number}' == q) return true;
+      final party = d.customerId == null ? null : app.partyOf(d.customerId!);
+      return (party?.name ?? d.customerName).toLowerCase().contains(q);
+    }).toList();
 
     return PendScaffold(
-      titleMr: 'बिले · दुरुस्ती / परतावा / रद्द',
-      titleEn: 'Bills — edit, return, void',
+      titleMr: 'बिले',
+      titleEn: 'Bills',
+      actions: [
+        // Always a fresh, empty bill (the same as Home → New Sale Bill).
+        BarAction('＋ नवीन बिल · New Bill',
+            key: const ValueKey('bills-new-bill'),
+            onTap: () => openNewBill(context)),
+      ],
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         TextField(
           key: const ValueKey('bills-search'),
@@ -62,7 +76,22 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
         Text(
             tr('बिल दुरुस्त/रद्द केल्यास साठा आपोआप दुरुस्त होतो. बिले कधीही हटवली जात नाहीत · Editing or voiding fixes stock automatically. Bills are kept (marked), never deleted.'),
             style: TextStyle(color: c.ink2, fontSize: 12)),
-        const SizedBox(height: 12),
+        SectionHeader(
+            '📝 ${L('ड्राफ्ट बिले', 'Draft Bills')} (${drafts.length})',
+            action: TextButton(
+                key: const ValueKey('bills-all-drafts'),
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const DraftBillsScreen())),
+                child: Text(L('सर्व', 'All')))),
+        if (drafts.isEmpty)
+          Text(tr('ड्राफ्ट बिले नाहीत · No draft bills'),
+              style: TextStyle(color: c.muted, fontSize: 12.5))
+        else
+          for (final d in drafts.take(q.isEmpty ? 5 : 20)) ...[
+            DraftCard(d),
+            const SizedBox(height: 10),
+          ],
+        SectionHeader('✅ ${L('पूर्ण बिले', 'Final Bills')}'),
         if (app.historyLoading && app.bills.isEmpty)
           const HistoryLoadingNote()
         else if (recent.isEmpty)
@@ -116,7 +145,9 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                                                     color: c.critical,
                                                     fontSize: 11,
                                                     fontWeight:
-                                                        FontWeight.w700))),
+                                                        FontWeight.w700)))
+                                      else
+                                        const FinalPill(),
                                     ]),
                                 Text(
                                     '${b.customerName.isEmpty ? '' : '${b.customerName} · '}${dateTimeShort(b.at)} · ${b.payments.map((p) => payModeLabel(p.mode)).join(' + ')}',
@@ -188,15 +219,16 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
         ),
       );
 
-  void _edit(BuildContext context, AppState app, Bill b) {
+  Future<void> _edit(BuildContext context, AppState app, Bill b) async {
     final why = app.whyBillNotEditable(b);
     if (why != null) {
       showToast(context, why);
       return;
     }
-    if (app.cart.isNotEmpty && app.editingBillId != b.id) {
-      showToast(context,
-          tr('आधी चालू बिल पूर्ण/रिकामे करा · Finish or clear the current cart first'));
+    // A new bill in progress is kept as a draft — never mixed into the
+    // correction of a finalized bill.
+    if (app.editingBillId != b.id &&
+        (!await keepCurrentBill(context) || !context.mounted)) {
       return;
     }
     app.beginEditBill(b.id);
@@ -222,7 +254,9 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(L('बिल #${bill.billNumber} · आंशिक परतावा', 'Bill #${bill.billNumber} · Partial return'),
+            Text(
+                L('बिल #${bill.billNumber} · आंशिक परतावा',
+                    'Bill #${bill.billNumber} · Partial return'),
                 style: baloo(
                     size: 17, weight: FontWeight.w700, color: context.c.ink)),
             const SizedBox(height: 12),
@@ -255,11 +289,9 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                       baloo(size: 13.5, weight: FontWeight.w700, color: c.ink)),
               Text(
                   item.saleType == SaleType.bag
-                      ? L(
-                          '${item.qty.round()} गोणी विकल्या · आधी परत ${already.round()}',
+                      ? L('${item.qty.round()} गोणी विकल्या · आधी परत ${already.round()}',
                           '${item.qty.round()} bags sold · already returned ${already.round()}')
-                      : L(
-                          '${kg(item.qty)} सुटे विकले · आधी परत ${kg(already)}',
+                      : L('${kg(item.qty)} सुटे विकले · आधी परत ${kg(already)}',
                           '${kg(item.qty)} loose sold · already returned ${kg(already)}'),
                   style: TextStyle(fontSize: 11, color: c.ink2)),
             ])),
@@ -328,7 +360,8 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
             style: TextStyle(color: context.c.ink2)),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx), child: Text(L('नाही', 'No'))),
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(L('नाही', 'No'))),
           FilledButton(
               style:
                   FilledButton.styleFrom(backgroundColor: context.c.critical),

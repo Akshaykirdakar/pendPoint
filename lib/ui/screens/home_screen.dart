@@ -11,13 +11,13 @@ import '../widgets/pend_scaffold.dart';
 import '../widgets/tiles.dart';
 import 'alerts_screen.dart';
 import 'bag_stock_screen.dart';
+import 'draft_bills_screen.dart';
 import 'khata_screen.dart';
 import 'party_master_screen.dart';
 import 'product_detail_screen.dart';
 import 'purchase_entry_screen.dart';
 import 'reports_screen.dart';
 import 'returns_screen.dart';
-import 'sales_entry_screen.dart';
 import '../../utils/lang.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -77,15 +77,20 @@ class HomeScreen extends StatelessWidget {
             value: money(rev),
             sub: '🧾 ${today.length}    🛍️ $bagsSold    ⚖️ ${kg(kgSold)}'),
         const SizedBox(height: 14),
-        // Everything the counter does daily — one big picture each.
+        // The counter's main job — always a fresh, empty bill.
+        const NewSaleBillButton(key: ValueKey('home-new-bill')),
+        const SizedBox(height: 14),
+        // Everything else the counter does daily — one big picture each.
         TileGrid([
           BigTile(
-              key: const ValueKey('home-new-bill'),
-              icon: Icons.point_of_sale_rounded,
-              mr: 'नवीन बिल',
-              en: 'New Sale',
-              color: c.accent,
-              onTap: () => _push(context, const SalesEntryScreen())),
+              key: const ValueKey('home-drafts'),
+              icon: Icons.edit_note_rounded,
+              mr: 'ड्राफ्ट बिले',
+              en: 'Draft Bills',
+              color: c.warning,
+              badge: '📝 ${app.drafts.length}',
+              badgeColor: c.serious,
+              onTap: () => _push(context, const DraftBillsScreen())),
           BigTile(
               key: const ValueKey('home-purchase'),
               icon: Icons.local_shipping_rounded,

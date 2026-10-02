@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/brand.dart';
+import '../../models/enums.dart';
 import '../../models/party.dart';
 import '../../models/product.dart';
 import '../../state/app_state.dart';
@@ -54,8 +55,18 @@ Future<Product?> pickProduct(BuildContext context, AppState app,
     {String? brandId,
     String? title,
     bool allowCreate = false,
-    bool includeInactive = false}) {
+    bool includeInactive = false,
+    bool forSale = false}) {
   final brand = brandId == null ? null : app.brandOf(brandId);
+  // Selling: show what is actually sellable, and mark products with none.
+  bool none(Product p) => forSale && !app.hasSellableStock(p.id);
+  String stockNote(Product p) {
+    if (!forSale) return '🛍️ ${app.stockOf(p.id).bags}';
+    return none(p)
+        ? '⛔ 0'
+        : '🛍️ ${app.sellableQty(p.id, SaleType.bag).floor()}';
+  }
+
   return showSearchPicker<Product>(
     context,
     title: title ??
@@ -68,9 +79,10 @@ Future<Product?> pickProduct(BuildContext context, AppState app,
           in searchProducts(app.products, app.brandOf, q, brandId: brandId))
         if (includeInactive || app.isProductSelectable(p))
           PickerOption(p, '${p.nameMr} · ${p.name}',
-            subtitle: '${app.brandOf(p.brandId)?.name ?? ''} · ${p.qr} · '
+            subtitle: '${none(p) ? '⛔ ${L('साठा नाही', 'Out of stock')} · ' : ''}'
+                '${app.brandOf(p.brandId)?.name ?? ''} · ${p.qr} · '
                 '${p.bagWeightKg}kg',
-            trailing: '🛍️ ${app.stockOf(p.id).bags}'),
+            trailing: stockNote(p)),
     ],
     createLabel: L('नवीन उत्पादन जोडा', 'Add New Product'),
     onCreate: allowCreate && app.hasOwnerRights

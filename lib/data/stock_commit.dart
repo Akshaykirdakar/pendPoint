@@ -105,6 +105,16 @@ class StockCommit {
   final List<StatusPatch> purchasePatches = [];
   final List<LedgerChange> ledger = [];
 
+  /// The draft bill this sale finalizes. It is removed in the same commit —
+  /// and the commit is rejected if the draft is already gone (finalized or
+  /// deleted on another phone), so one draft can never become two bills.
+  /// A failed commit leaves the draft exactly as it was.
+  String? finalizedDraftId;
+
+  /// The draft version this phone holds — if another phone saved a newer
+  /// one, finalizing is refused rather than silently dropping its changes.
+  int? finalizedDraftVersion;
+
   StockCommit(this.at);
 
   BatchDelta batch(String batchId, String productId) =>
@@ -137,3 +147,9 @@ class StockCommitException implements Exception {
   @override
   String toString() => message;
 }
+
+/// Why finalizing a draft was refused (nothing was written).
+const draftGoneMessage =
+    'हा ड्राफ्ट आधीच पूर्ण / हटवला आहे · This draft was already finalized or deleted on another phone';
+const draftChangedMessage =
+    'हा ड्राफ्ट दुसऱ्या फोनवर बदलला आहे — ड्राफ्ट बिलेमधून पुन्हा उघडा · This draft was changed on another phone — open it again from Draft Bills';
