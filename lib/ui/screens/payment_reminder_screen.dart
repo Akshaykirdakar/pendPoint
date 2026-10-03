@@ -112,7 +112,7 @@ class _PaymentReminderScreenState extends State<PaymentReminderScreen> {
   }
 
   String _message(AppState app, Customer cu) => ReminderService.message(
-      shopName: app.settings.shop, customerName: cu.name, due: cu.outstanding);
+      shopName: app.shopName, customerName: cu.name, due: cu.outstanding);
 
   Widget _channelButton(
       BuildContext context, ReminderChannel ch, String emoji, String label) {

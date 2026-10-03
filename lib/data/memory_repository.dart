@@ -118,11 +118,14 @@ class InMemoryRepository implements Repository {
   Future<void> deleteBrand(String brandId,
       {List<String> productIds = const []}) async {}
 
+  int _logos = 0;
+
   @override
   Future<String> uploadBrandPhoto(
       String brandId, Uint8List bytes, String extension) async {
+    // A counter too: two uploads within one clock tick get different names.
     final path =
-        'brands/$brandId/logo_${DateTime.now().microsecondsSinceEpoch}.$extension';
+        'brands/$brandId/logo_${DateTime.now().microsecondsSinceEpoch}_${++_logos}.$extension';
     photos[path] = bytes;
     return 'memory://$path';
   }

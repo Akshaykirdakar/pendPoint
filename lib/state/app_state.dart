@@ -167,6 +167,7 @@ class AppState extends ChangeNotifier {
         repo.useContext(StoreContext(uid: uid, role: me.role));
         session = SessionState.superAdmin;
         _watchNotifications();
+        unawaited(applyPlatformLanguage());
       } else if (me.storeId == null || me.storeId!.isEmpty) {
         session = SessionState.noStore;
       } else {
@@ -230,8 +231,21 @@ class AppState extends ChangeNotifier {
   /// shows at once (no restart), and a store user whose store is switched
   /// off is stopped right away (the rules already refuse its data).
   StreamSubscription<Store?>? _storeWatch;
+  StreamSubscription<AppSettings?>? _settingsWatch;
   void _watchOpenStore(String sid) {
     _storeWatch?.cancel();
+    _settingsWatch?.cancel();
+    final settingsEpoch = sessionEpoch;
+    // This store's own settings, live: a change made by the super admin or
+    // on another device of the store shows here at once.
+    _settingsWatch = repo.platform.watchStoreSettings(sid).listen((s) {
+      if (settingsEpoch != sessionEpoch || s == null || repo.context?.storeId != sid) {
+        return;
+      }
+      settings = s;
+      appLang = s.lang;
+      notifyListeners();
+    }, onError: (Object _) {});
     // Tied to this session (not to data loads, which may be retried).
     final epoch = sessionEpoch;
     _storeWatch = repo.platform.watchStore(sid).listen((st) {
@@ -249,6 +263,21 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     }, onError: (Object _) {});
   }
+
+  /// The Super Admin screens (no store open) use General Settings →
+  /// Default language; inside a store, that store's own language applies.
+  Future<void> applyPlatformLanguage() async {
+    final epoch = sessionEpoch;
+    final g = await platform.settings(refresh: true);
+    if (epoch != sessionEpoch || storeId != null || !isSuperAdmin) return;
+    final lang = langOf(g.defaultLanguage);
+    settings = AppSettings()..lang = lang;
+    appLang = lang;
+    notifyListeners();
+  }
+
+  static AppLang langOf(String code) =>
+      AppLang.values.where((l) => l.name == code).firstOrNull ?? AppLang.both;
 
   /// Super Admin platform: settings, notifications, plans, payments,
   /// announcements, reminders (see PlatformService).
@@ -278,6 +307,7 @@ class AppState extends ChangeNotifier {
     repo.useContext(StoreContext(uid: ctx.uid, role: ctx.role));
     session = SessionState.superAdmin;
     _watchNotifications();
+    unawaited(applyPlatformLanguage());
     loading = false;
     notifyListeners();
   }
@@ -290,6 +320,8 @@ class AppState extends ChangeNotifier {
     sessionEpoch++;
     _storeWatch?.cancel();
     _storeWatch = null;
+    _settingsWatch?.cancel();
+    _settingsWatch = null;
     _noteWatch?.cancel();
     _noteWatch = null;
     notifications = [];
@@ -459,7 +491,12 @@ class AppState extends ChangeNotifier {
       if ((await repo.loadStore(id)) != null) {
         return 'हा दुकान कोड आधीच वापरला आहे · Store code $id is already used';
       }
-      await repo.createStore(st, AppSettings()..shop = st.storeName);
+      // Its own settings, starting in the platform's default language.
+      await repo.createStore(
+          st,
+          AppSettings()
+            ..shop = st.storeName
+            ..lang = langOf(g.defaultLanguage));
     } catch (e) {
       final text = e.toString();
       if (text.contains('already')) {
@@ -489,6 +526,9 @@ class AppState extends ChangeNotifier {
             : 'STORE_UPDATED';
     _auditStore(st.id, action, 'STORE', st.id);
     if (before != null) await platform.storeChanged(before, st);
+    if (before != null && before.storeName != st.storeName) {
+      await platform.syncShopName(st.id, st.storeName);
+    }
     notifyListeners();
     return null;
   }
@@ -1824,6 +1864,7 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _autosave?.cancel();
     _storeWatch?.cancel();
+    _settingsWatch?.cancel();
     _noteWatch?.cancel();
     super.dispose();
   }
@@ -3228,12 +3269,42 @@ class AppState extends ChangeNotifier {
   }
 
   // ---- settings ----
+  /// The shop's name — the store's name (kept equal to the shop settings'
+  /// name on every save); the settings' name only without a store (demo).
+  String get shopName {
+    final n = store?.storeName.trim();
+    return n == null || n.isEmpty ? settings.shop : n;
+  }
+
+  /// Whether this login may change the open store's settings (its admin or
+  /// a super admin). Staff see them read-only.
+  bool get canEditSettings {
+    final sid = storeId;
+    if (sid == null) return hasOwnerRights; // demo / no multi-store login
+    return platform.canEditStoreSettings(sid);
+  }
+
+  /// Changes the OPEN store's settings only (stores/{id}/meta/settings);
+  /// every store keeps its own. Each changed setting is audited.
   Future<void> updateSettings(void Function(AppSettings) mutate) async {
+    if (!canEditSettings) {
+      throw const StoreContextException(
+          'Only this store\'s admin can change its settings.');
+    }
+    final before = settings;
     final next = settings.copy();
     mutate(next);
+    next.shop = next.shop.trim();
     await repo.saveSettings(next);
     settings = next;
     appLang = next.lang;
+    final sid = storeId;
+    if (sid != null) platform.auditSettings(sid, before, next);
+    // A new shop name renames the store too (one name everywhere).
+    final st = store;
+    if (st != null && next.shop.isNotEmpty && next.shop != st.storeName) {
+      await updateMyStore(st.copyWith(storeName: next.shop));
+    }
     notifyListeners();
   }
 

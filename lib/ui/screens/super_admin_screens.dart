@@ -16,13 +16,18 @@ import 'notification_screens.dart';
 import 'platform_settings_screen.dart';
 import 'send_notification_screen.dart';
 import 'store_plan_screen.dart';
+import 'store_settings_screen.dart';
 import '../widgets/tiles.dart';
 
 /// 👑 Super Admin — stores and their users. A super admin is the only role
 /// that works across stores; opening a store keeps their identity and only
 /// changes which store the app shows.
+/// Super Admin "Dashboard" tab (totals, recent changes, announcements,
+/// audit) — or, with [storesTab], the "Stores" tab (create store and the
+/// live store cards). Both read the store documents live.
 class SuperAdminHome extends StatefulWidget {
-  const SuperAdminHome({super.key});
+  final bool storesTab;
+  const SuperAdminHome({this.storesTab = false, super.key});
   @override
   State<SuperAdminHome> createState() => _SuperAdminHomeState();
 }
@@ -34,7 +39,6 @@ class _SuperAdminHomeState extends State<SuperAdminHome> {
       context.read<AppState>().repo.platform.watchStores();
   late Future<(List<Staff>, List<AuditEntry>, List<Announcement>, GlobalSettings)>
       _extras;
-  bool _running = false;
 
   @override
   void initState() {
@@ -69,16 +73,12 @@ class _SuperAdminHomeState extends State<SuperAdminHome> {
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final c = context.c;
+    final storesTab = widget.storesTab;
     return PendScaffold(
-      titleMr: 'सुपर ॲडमिन',
-      titleEn: 'Super Admin',
+      titleMr: storesTab ? 'दुकाने' : 'सुपर ॲडमिन',
+      titleEn: storesTab ? 'Stores' : 'Super Admin',
       actions: [
-        const NotificationBell(),
-        BarAction('🔑',
-            key: const ValueKey('sa-password'),
-            onTap: () => showChangeMyPassword(context)),
-        BarAction('लॉगआउट · Sign out',
-            key: const ValueKey('sa-signout'), onTap: () => app.signOut()),
+        BarAction('🔄', key: const ValueKey('sa-refresh'), onTap: _reload),
       ],
       body: StreamBuilder<List<Store>>(
         stream: _stores,
@@ -121,11 +121,28 @@ class _SuperAdminHomeState extends State<SuperAdminHome> {
                   .where((n) => storeTypes.contains(n.type))
                   .take(4)
                   .toList();
-              Widget nav(String label, String key, Widget screen) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: BigButton.ghost(label,
-                        key: ValueKey(key), onTap: () => _push(screen)),
-                  );
+              if (storesTab) {
+                return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      BigButton.primary(tr('＋ नवीन दुकान · Create store'),
+                          key: const ValueKey('sa-create-store'),
+                          onTap: () => _push(const StoreFormScreen())),
+                      SectionHeader(L('दुकाने (${stores.length})', 'Stores (${stores.length})')),
+                      if (stores.isEmpty)
+                        EmptyState('🏪', tr('अजून दुकान नाही · No stores yet'))
+                      else
+                        for (final st in stores) ...[
+                          _storeCard(context, app, st,
+                              storeUsers.where((u) => u.storeId == st.id).length,
+                              status(st)),
+                          const SizedBox(height: 10),
+                        ],
+                      Text(
+                          tr('दुकान उघडल्यावर तुम्ही त्या दुकानाचा डेटा पाहता — इतर दुकानांचा नाही. · Opening a store shows that store\'s data only.'),
+                          style: TextStyle(fontSize: 11.5, color: c.muted)),
+                    ]);
+              }
               return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -153,26 +170,6 @@ class _SuperAdminHomeState extends State<SuperAdminHome> {
                           value: '$pending',
                           sub: '📨 ${L('न वाचलेल्या', 'unread')} ${app.unreadNotifications}'),
                     ]),
-                    const SizedBox(height: 14),
-                    BigButton.primary(tr('＋ नवीन दुकान · Create store'),
-                        key: const ValueKey('sa-create-store'),
-                        onTap: () => _push(const StoreFormScreen())),
-                    const SizedBox(height: 8),
-                    nav(tr('📤 सूचना पाठवा · Send notification'), 'sa-send',
-                        const SendNotificationScreen()),
-                    nav(tr('📢 घोषणा · Announcements'), 'sa-announcements',
-                        const AnnouncementsScreen()),
-                    nav(tr('📋 प्लॅन · Plans'), 'sa-plans', const PlansScreen()),
-                    nav(tr('⚙️ सामान्य सेटिंग्ज · General settings'), 'sa-settings',
-                        const GeneralSettingsScreen()),
-                    nav(tr('📜 ऑडिट लॉग · Audit logs'), 'sa-audit',
-                        const AuditLogScreen()),
-                    BigButton.ghost(
-                        _running
-                            ? tr('⏳ चालू आहे… · Running…')
-                            : tr('⏰ आठवणी आत्ता पाठवा · Run plan reminders now'),
-                        key: const ValueKey('sa-run-reminders'),
-                        onTap: _running ? null : () => _runReminders(stores)),
                     if (changes.isNotEmpty) ...[
                       SectionHeader(tr('अलीकडील बदल · Recent store changes')),
                       for (final n in changes)
@@ -185,16 +182,6 @@ class _SuperAdminHomeState extends State<SuperAdminHome> {
                               style: TextStyle(fontSize: 12.5, color: c.ink2)),
                         ),
                     ],
-                    SectionHeader(tr('दुकाने · Stores')),
-                    if (stores.isEmpty)
-                      EmptyState('🏪', tr('अजून दुकान नाही · No stores yet'))
-                    else
-                      for (final st in stores) ...[
-                        _storeCard(context, app, st,
-                            storeUsers.where((u) => u.storeId == st.id).length,
-                            status(st)),
-                        const SizedBox(height: 10),
-                      ],
                     if (announcements.isNotEmpty) ...[
                       SectionHeader(tr('अलीकडील घोषणा · Recent announcements')),
                       for (final a in announcements)
@@ -210,32 +197,17 @@ class _SuperAdminHomeState extends State<SuperAdminHome> {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(fontSize: 12, color: c.ink2)),
                     ],
-                    const SizedBox(height: 10),
-                    Text(
-                        tr('दुकान उघडल्यावर तुम्ही त्या दुकानाचा डेटा पाहता — इतर दुकानांचा नाही. · Opening a store shows that store\'s data only.'),
-                        style: TextStyle(fontSize: 11.5, color: c.muted)),
+                    if (changes.isEmpty && announcements.isEmpty && audit.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 16),
+                        child: EmptyState('📊', tr('अजून काही हालचाल नाही · No recent activity')),
+                      ),
                   ]);
             },
           );
         },
       ),
     );
-  }
-
-  Future<void> _runReminders(List<Store> stores) async {
-    setState(() => _running = true);
-    final app = context.read<AppState>();
-    try {
-      final n = await app.platform.runReminders(stores);
-      if (mounted) {
-        showToast(context,
-            L('$n आठवणी तयार झाल्या', '$n reminder(s) generated'));
-      }
-    } catch (e) {
-      if (mounted) showToast(context, '$e');
-    } finally {
-      if (mounted) setState(() => _running = false);
-    }
   }
 
   Widget _storeCard(
@@ -328,6 +300,9 @@ class _SuperAdminHomeState extends State<SuperAdminHome> {
         ]),
         const SizedBox(height: 6),
         Row(children: [
+          action(tr('⚙️ सेटिंग्ज · Settings'), c.s1,
+              () => _push(StoreSettingsScreen(store: st)), 'sa-settings-${st.id}'),
+          const SizedBox(width: 6),
           action(
               st.isActive
                   ? tr('⛔ बंद करा · Deactivate')

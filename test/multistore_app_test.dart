@@ -278,6 +278,8 @@ void main() {
       final app = await pump(tester, 'super1');
       await tester.pumpAndSettle();
       expect(find.byType(SuperAdminHome), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('sa-tab-stores')));
+      await tester.pumpAndSettle();
       for (final s in [storeA, storeB, storeOff]) {
         expect(find.byKey(ValueKey('sa-store-$s')), findsOneWidget);
       }
@@ -302,6 +304,8 @@ void main() {
 
     testWidgets('super admin creates a store from the form', (tester) async {
       final app = await pump(tester, 'super1');
+      await tester.tap(find.byKey(const ValueKey('sa-tab-stores')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('sa-create-store')));
       await tester.pumpAndSettle();
       // The code is given automatically: 3 stores so far → STR004.

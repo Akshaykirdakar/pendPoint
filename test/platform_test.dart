@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:pend_point/models/app_settings.dart';
 import 'package:pend_point/models/platform.dart';
 import 'package:pend_point/models/staff.dart';
 import 'package:pend_point/models/store.dart';
@@ -19,6 +20,8 @@ import 'package:pend_point/ui/screens/platform_settings_screen.dart';
 import 'package:pend_point/ui/screens/send_notification_screen.dart';
 import 'package:pend_point/ui/screens/store_plan_screen.dart';
 import 'package:pend_point/ui/screens/super_admin_screens.dart';
+import 'package:pend_point/ui/screens/super_admin_shell.dart';
+import 'package:pend_point/utils/lang.dart';
 import 'package:pend_point/utils/theme.dart';
 
 import 'multistore_support.dart';
@@ -50,6 +53,8 @@ Future<List<Map<String, dynamic>>> _notes(FakeFirebaseFirestore db,
     ];
 
 void main() {
+  tearDown(() => appLang = AppLang.both);
+
   group('global settings', () {
     test('super admin saves; store users get the general part only', () async {
       final db = await twoStores();
@@ -72,6 +77,33 @@ void main() {
       expect(seen.trialDays, 14, reason: 'admin part not loaded for a store admin');
       expect(seen.template(NoticeType.offer), defaultTemplates[NoticeType.offer]);
       expect(() => a.platform.saveSettings(seen), throwsA(isA<StoreContextException>()));
+    });
+
+    test('default language: Super Admin screens and new stores use it', () async {
+      final db = await twoStores();
+      final sa = await _login('super1', db);
+      expect(appLang, AppLang.both);
+      final g = await sa.platform.settings()..defaultLanguage = 'en';
+      expect(await sa.platform.saveSettings(g), isNull);
+      await sa.applyPlatformLanguage();
+      expect(appLang, AppLang.en);
+
+      // Inside a store its own language applies; back on All stores, English.
+      await sa.openStore((await sa.repo.loadStore(storeA))!);
+      while (sa.historyLoading) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(appLang, AppLang.both, reason: 'STORE A keeps its own language');
+      sa.closeStore();
+      await _settle();
+      expect(appLang, AppLang.en);
+
+      // A fresh login also starts in English.
+      final again = await _login('super1', db);
+      expect(again.settings.lang, AppLang.en);
+
+      expect(await sa.createStore(code: 'STR010', name: 'Karad'), isNull);
+      expect((await db.doc('stores/STR010/meta/settings').get()).get('lang'), 'en');
     });
 
     test('a new store starts on the configured trial', () async {
@@ -196,7 +228,8 @@ void main() {
       await tester.pumpWidget(ChangeNotifierProvider.value(
           value: app,
           child: MaterialApp(
-              theme: buildTheme(Brightness.light), home: const SuperAdminHome())));
+              theme: buildTheme(Brightness.light),
+              home: const SuperAdminHome(storesTab: true))));
       await tester.pumpAndSettle();
       expect(find.text('Store $storeA'), findsOneWidget);
       await db.doc('stores/$storeA').update({'storeName': 'Akshay Traders'});
@@ -234,6 +267,60 @@ void main() {
       expect(tester.takeException(), isNull, reason: '${screen.runtimeType}');
     }
     expect(find.byKey(const ValueKey('store-form-channel')), findsOneWidget);
+  });
+
+  testWidgets('super admin tabs: dashboard, stores, notifications, plans, settings',
+      (tester) async {
+    tester.view.physicalSize = const Size(720, 1600);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final db = (await tester.runAsync(twoStores))!;
+    await tester.runAsync(() async {
+      signedInUid = 'adminA';
+      final a = AppState(repoFor(db));
+      await a.startSession();
+      await a.updateMyStore(a.store!.copyWith(storeName: 'Akshay Traders'));
+      await _settle();
+    });
+    final app = (await tester.runAsync(() => _login('super1', db)))!;
+    expect(app.unreadNotifications, 1);
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+        value: app,
+        child: MaterialApp(
+            theme: buildTheme(Brightness.light), home: const SuperAdminShell())));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('sa-total-stores')), findsOneWidget);
+    expect(find.byKey(const ValueKey('sa-tab-unread')), findsOneWidget);
+
+    Future<void> tab(String key) async {
+      await tester.tap(find.byKey(ValueKey(key)));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: key);
+    }
+
+    await tab('sa-tab-stores');
+    expect(find.byKey(const ValueKey('sa-store-$storeA')), findsOneWidget);
+    expect(find.text('Akshay Traders'), findsOneWidget);
+    expect(find.byKey(const ValueKey('sa-total-stores')), findsNothing);
+
+    await tab('sa-tab-notifications');
+    expect(find.byKey(const ValueKey('sa-send')), findsOneWidget);
+    expect(find.byKey(const ValueKey('sa-announcements')), findsOneWidget);
+    expect(find.textContaining('Store name changed from Store $storeA to Akshay Traders'),
+        findsOneWidget);
+
+    await tab('sa-tab-plans');
+    expect(find.byKey(const ValueKey('sa-run-reminders')), findsOneWidget);
+    expect(find.byKey(const ValueKey('sa-planrow-$storeB')), findsOneWidget);
+
+    await tab('sa-tab-settings');
+    expect(find.byKey(const ValueKey('sa-settings')), findsOneWidget);
+    expect(find.byKey(const ValueKey('sa-password')), findsOneWidget);
+    expect(find.byKey(const ValueKey('sa-signout')), findsOneWidget);
+
+    await tab('sa-tab-dashboard');
+    expect(find.byKey(const ValueKey('sa-total-stores')), findsOneWidget);
   });
 
   group('plans and payments', () {
@@ -336,6 +423,45 @@ void main() {
       expect(s.notifications, isEmpty, reason: 'owner-only notice');
       final b = await _login('adminB', db);
       expect(b.notifications, isEmpty, reason: 'another store');
+    });
+
+    test('inside a store the super admin sees only that store\'s notifications',
+        () async {
+      final db = await twoStores();
+      final sa = await _login('super1', db);
+      // Events of both stores (like "Store STR003 has been activated.").
+      final b = (await sa.repo.loadStore(storeB))!;
+      await sa.updateStore(b.copyWith(status: StoreStatus.inactive));
+      await sa.updateStore(b.copyWith(status: StoreStatus.active));
+      await sa.platform.send(
+          stores: [(await sa.repo.loadStore(storeA))!],
+          type: NoticeType.maintenance,
+          subject: 'A only',
+          message: 'm',
+          channels: {Channels.inApp});
+      await _settle();
+      expect(sa.notifications.map((n) => n.storeId).toSet(), {storeB},
+          reason: 'all-stores feed (no store open): platform events');
+
+      await sa.openStore((await sa.repo.loadStore(storeA))!);
+      while (sa.historyLoading) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      await _settle();
+      expect(sa.notifications, isNotEmpty);
+      expect(sa.notifications.every((n) => n.storeId == storeA), isTrue,
+          reason: 'STORE A open: nothing of STORE B');
+      expect(sa.notifications.single.title, 'A only');
+
+      sa.closeStore();
+      await _settle();
+      expect(sa.notifications.any((n) => n.storeId == storeB), isTrue,
+          reason: 'back on All stores: every store again');
+
+      final a = await _login('adminA', db);
+      expect(a.notifications.every((n) => n.storeId == storeA), isTrue);
+      final staff = await _login('staffA', db);
+      expect(staff.notifications.every((n) => n.storeId == storeA), isTrue);
     });
 
     test('read / unread and mark all read are per user', () async {

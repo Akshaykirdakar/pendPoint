@@ -12,6 +12,7 @@ import 'package:pend_point/models/store.dart';
 import 'package:pend_point/state/app_state.dart';
 import 'package:pend_point/ui/screens/staff_screen.dart';
 import 'package:pend_point/ui/screens/super_admin_screens.dart';
+import 'package:pend_point/ui/screens/super_admin_shell.dart';
 import 'package:pend_point/utils/theme.dart';
 
 import 'multistore_support.dart';
@@ -164,7 +165,7 @@ void main() {
 
     testWidgets('super admin: own password and store users\' passwords',
         (tester) async {
-      final (app, repo) = await pump(tester, 'super1', const SuperAdminHome());
+      final (app, repo) = await pump(tester, 'super1', const SuperAdminSettingsTab());
       await tester.tap(find.byKey(const ValueKey('sa-password')));
       await tester.pumpAndSettle();
       await tester.enterText(

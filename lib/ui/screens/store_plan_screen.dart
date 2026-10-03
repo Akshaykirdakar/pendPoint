@@ -68,56 +68,77 @@ class _StorePlanScreenState extends State<StorePlanScreen> {
           final now = DateTime.now();
           final status = st.planStatusAt(now);
           String d(DateTime? x) => x == null ? '—' : ddmmyyyy(x);
-          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Container(
-              decoration: cardDecoration(context),
-              padding: const EdgeInsets.all(14),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('${st.storeName} · ${st.id}',
-                    key: const ValueKey('plan-store-name'),
-                    style: baloo(size: 17, weight: FontWeight.w800, color: c.ink)),
-                const SizedBox(height: 6),
-                Text('${L('प्लॅन', 'Plan')}: ${st.planName ?? '—'} · ${planStatusLabel(status)}',
-                    key: const ValueKey('plan-status')),
-                Text('${L('सुरुवात', 'Started')}: ${d(st.planStartDate)} · ${L('मुदत', 'Expires')}: ${d(st.planExpiryDate)}'),
-                Text('${L('नूतनीकरण रक्कम', 'Renewal amount')}: ${st.renewalAmount == null ? '—' : money(st.renewalAmount!)}'),
-                Text('${L('पेमेंट', 'Payment')}: ${st.paymentStatus ?? '—'} · ${L('शेवटचे', 'last')} ${d(st.lastPaymentDate)} · ${L('पुढचे', 'next')} ${d(st.nextPaymentDate)}'),
-                if (st.gracePeriodUntil != null)
-                  Text('${L('जास्तीची मुदत', 'Grace until')}: ${d(st.gracePeriodUntil)}'),
-                if (st.ownerName.isNotEmpty || st.ownerPhone.isNotEmpty)
-                  Text('${L('मालक', 'Owner')}: ${st.ownerName} ${st.ownerPhone}',
-                      style: TextStyle(color: c.ink2)),
-              ]),
-            ),
-            const SizedBox(height: 12),
-            BigButton.primary(tr('💰 पेमेंट / नूतनीकरण नोंदवा · Record payment / renewal'),
-                key: const ValueKey('plan-record-payment'),
-                onTap: () => _recordPayment(st)),
-            const SizedBox(height: 8),
-            BigButton.ghost(tr('✏️ प्लॅन बदला · Change plan / expiry'),
-                key: const ValueKey('plan-change'),
-                onTap: () => _changePlan(st)),
-            SectionHeader(tr('पेमेंट इतिहास · Payment history')),
-            FutureBuilder<List<StorePayment>>(
-              future: _payments,
-              builder: (context, ps) {
-                if (ps.hasError) return EmptyState('⚠️', '${ps.error}');
-                final list = ps.data;
-                if (list == null) return const Center(child: CircularProgressIndicator());
-                if (list.isEmpty) return EmptyState('💳', tr('अजून पेमेंट नाही · No payments yet'));
-                return CardList([
-                  for (final p in list)
-                    ListTile(
-                      key: ValueKey('payment-${p.id}'),
-                      title: Text('${money(p.amount)} · ${p.status}'),
-                      subtitle: Text(
-                          '${ddmmyyyy(p.paymentDate)}${p.method.isEmpty ? '' : ' · ${p.method}'}${p.transactionId.isEmpty ? '' : ' · ${p.transactionId}'}'
-                          '${p.periodEnd == null ? '' : '\n${L('पर्यंत', 'until')} ${ddmmyyyy(p.periodEnd!)}'}${p.notes.isEmpty ? '' : '\n${p.notes}'}'),
-                    ),
-                ]);
-              },
-            ),
-          ]);
+          return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  decoration: cardDecoration(context),
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('${st.storeName} · ${st.id}',
+                            key: const ValueKey('plan-store-name'),
+                            style: baloo(
+                                size: 17,
+                                weight: FontWeight.w800,
+                                color: c.ink)),
+                        const SizedBox(height: 6),
+                        Text(
+                            '${L('प्लॅन', 'Plan')}: ${st.planName ?? '—'} · ${planStatusLabel(status)}',
+                            key: const ValueKey('plan-status')),
+                        Text(
+                            '${L('सुरुवात', 'Started')}: ${d(st.planStartDate)} · ${L('मुदत', 'Expires')}: ${d(st.planExpiryDate)}'),
+                        Text(
+                            '${L('नूतनीकरण रक्कम', 'Renewal amount')}: ${st.renewalAmount == null ? '—' : money(st.renewalAmount!)}'),
+                        Text(
+                            '${L('पेमेंट', 'Payment')}: ${st.paymentStatus ?? '—'} · ${L('शेवटचे', 'last')} ${d(st.lastPaymentDate)} · ${L('पुढचे', 'next')} ${d(st.nextPaymentDate)}'),
+                        if (st.gracePeriodUntil != null)
+                          Text(
+                              '${L('जास्तीची मुदत', 'Grace until')}: ${d(st.gracePeriodUntil)}'),
+                        if (st.ownerName.isNotEmpty || st.ownerPhone.isNotEmpty)
+                          Text(
+                              '${L('मालक', 'Owner')}: ${st.ownerName} ${st.ownerPhone}',
+                              style: TextStyle(color: c.ink2)),
+                      ]),
+                ),
+                const SizedBox(height: 12),
+                BigButton.primary(
+                    tr('💰 पेमेंट / नूतनीकरण नोंदवा · Record payment / renewal'),
+                    key: const ValueKey('plan-record-payment'),
+                    onTap: () => _recordPayment(st)),
+                const SizedBox(height: 8),
+                BigButton.ghost(tr('✏️ प्लॅन बदला · Change plan / expiry'),
+                    key: const ValueKey('plan-change'),
+                    onTap: () => _changePlan(st)),
+                SectionHeader(tr('पेमेंट इतिहास · Payment history')),
+                FutureBuilder<List<StorePayment>>(
+                  future: _payments,
+                  builder: (context, ps) {
+                    if (ps.hasError) return EmptyState('⚠️', '${ps.error}');
+                    final list = ps.data;
+                    if (list == null) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (list.isEmpty) {
+                      return EmptyState(
+                          '💳', tr('अजून पेमेंट नाही · No payments yet'));
+                    }
+                    return CardList([
+                      for (final p in list)
+                        Material(
+                            color: c.surface,
+                            child: ListTile(
+                              key: ValueKey('payment-${p.id}'),
+                              title: Text('${money(p.amount)} · ${p.status}'),
+                              subtitle: Text(
+                                  '${ddmmyyyy(p.paymentDate)}${p.method.isEmpty ? '' : ' · ${p.method}'}${p.transactionId.isEmpty ? '' : ' · ${p.transactionId}'}'
+                                  '${p.periodEnd == null ? '' : '\n${L('पर्यंत', 'until')} ${ddmmyyyy(p.periodEnd!)}'}${p.notes.isEmpty ? '' : '\n${p.notes}'}'),
+                            )),
+                    ]);
+                  },
+                ),
+              ]);
         },
       ),
     );
@@ -128,7 +149,9 @@ class _StorePlanScreenState extends State<StorePlanScreen> {
     final plans = await _plans.catchError((_) => <Plan>[]);
     if (!mounted) return;
     final amount = TextEditingController(
-        text: st.renewalAmount == null ? '' : st.renewalAmount!.round().toString());
+        text: st.renewalAmount == null
+            ? ''
+            : st.renewalAmount!.round().toString());
     final method = TextEditingController();
     final txn = TextEditingController();
     final notes = TextEditingController();
@@ -147,7 +170,8 @@ class _StorePlanScreenState extends State<StorePlanScreen> {
                   key: const ValueKey('pay-amount'),
                   controller: amount,
                   keyboardType: TextInputType.number,
-                  decoration: InputDecoration(labelText: L('रक्कम ₹', 'Amount ₹'))),
+                  decoration:
+                      InputDecoration(labelText: L('रक्कम ₹', 'Amount ₹'))),
               DropdownButtonFormField<String>(
                 key: const ValueKey('pay-status'),
                 isExpanded: true,
@@ -166,24 +190,32 @@ class _StorePlanScreenState extends State<StorePlanScreen> {
                   initialValue: plan?.id,
                   decoration: InputDecoration(labelText: L('प्लॅन', 'Plan')),
                   items: [
-                    DropdownMenuItem<String?>(value: null, child: Text(L('डीफॉल्ट', 'Default'))),
+                    DropdownMenuItem<String?>(
+                        value: null, child: Text(L('डीफॉल्ट', 'Default'))),
                     for (final p in plans)
                       DropdownMenuItem<String?>(
-                          value: p.id, child: Text('${p.name} · ${money(p.price)} · ${p.durationDays}d')),
+                          value: p.id,
+                          child: Text(
+                              '${p.name} · ${money(p.price)} · ${p.durationDays}d')),
                   ],
                   onChanged: (v) => setSt(() {
                     plan = plans.where((p) => p.id == v).firstOrNull;
-                    if (plan != null) amount.text = plan!.price.round().toString();
+                    if (plan != null) {
+                      amount.text = plan!.price.round().toString();
+                    }
                   }),
                 ),
               TextField(
                   key: const ValueKey('pay-method'),
                   controller: method,
-                  decoration: InputDecoration(labelText: L('पद्धत (UPI / रोख / बँक)', 'Method (UPI / cash / bank)'))),
+                  decoration: InputDecoration(
+                      labelText: L('पद्धत (UPI / रोख / बँक)',
+                          'Method (UPI / cash / bank)'))),
               TextField(
                   key: const ValueKey('pay-txn'),
                   controller: txn,
-                  decoration: InputDecoration(labelText: L('व्यवहार क्रमांक', 'Transaction ID'))),
+                  decoration: InputDecoration(
+                      labelText: L('व्यवहार क्रमांक', 'Transaction ID'))),
               TextField(
                   key: const ValueKey('pay-notes'),
                   controller: notes,
@@ -193,7 +225,8 @@ class _StorePlanScreenState extends State<StorePlanScreen> {
                   key: const ValueKey('pay-renew'),
                   contentPadding: EdgeInsets.zero,
                   value: renew,
-                  title: Text(tr('प्लॅनची मुदत वाढवा · Renew / extend the plan')),
+                  title:
+                      Text(tr('प्लॅनची मुदत वाढवा · Renew / extend the plan')),
                   onChanged: (v) => setSt(() => renew = v ?? true),
                 ),
               if (error != null)
@@ -201,7 +234,9 @@ class _StorePlanScreenState extends State<StorePlanScreen> {
             ]),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(L('रद्द', 'Cancel'))),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text(L('रद्द', 'Cancel'))),
             FilledButton(
                 key: const ValueKey('pay-save'),
                 onPressed: () async {
@@ -235,7 +270,9 @@ class _StorePlanScreenState extends State<StorePlanScreen> {
     final plans = await _plans.catchError((_) => <Plan>[]);
     if (!mounted) return;
     Plan? plan = plans.where((p) => p.id == st.planId).firstOrNull;
-    var status = PlanStatus.settable.contains(st.planStatus) ? st.planStatus! : PlanStatus.active;
+    var status = PlanStatus.settable.contains(st.planStatus)
+        ? st.planStatus!
+        : PlanStatus.active;
     DateTime? expiry = st.planExpiryDate;
     final notes = TextEditingController();
     String? error;
@@ -252,11 +289,15 @@ class _StorePlanScreenState extends State<StorePlanScreen> {
                 initialValue: plan?.id,
                 decoration: InputDecoration(labelText: L('प्लॅन', 'Plan')),
                 items: [
-                  DropdownMenuItem<String?>(value: null, child: Text(L('बदल नाही', 'No change'))),
+                  DropdownMenuItem<String?>(
+                      value: null, child: Text(L('बदल नाही', 'No change'))),
                   for (final p in plans)
-                    DropdownMenuItem<String?>(value: p.id, child: Text('${p.name} · ${money(p.price)}')),
+                    DropdownMenuItem<String?>(
+                        value: p.id,
+                        child: Text('${p.name} · ${money(p.price)}')),
                 ],
-                onChanged: (v) => setSt(() => plan = plans.where((p) => p.id == v).firstOrNull),
+                onChanged: (v) => setSt(
+                    () => plan = plans.where((p) => p.id == v).firstOrNull),
               ),
               DropdownButtonFormField<String>(
                 key: const ValueKey('cp-status'),
@@ -278,20 +319,26 @@ class _StorePlanScreenState extends State<StorePlanScreen> {
                       context: ctx,
                       firstDate: DateTime(now.year - 2),
                       lastDate: DateTime(now.year + 10),
-                      initialDate: expiry ?? now.add(const Duration(days: 365)));
+                      initialDate:
+                          expiry ?? now.add(const Duration(days: 365)));
                   if (d != null) setSt(() => expiry = d);
                 },
-                child: Text('${L('मुदत', 'Expiry')}: ${expiry == null ? '—' : ddmmyyyy(expiry!)}'),
+                child: Text(
+                    '${L('मुदत', 'Expiry')}: ${expiry == null ? '—' : ddmmyyyy(expiry!)}'),
               ),
               TextField(
                   key: const ValueKey('cp-notes'),
                   controller: notes,
-                  decoration: InputDecoration(labelText: L('नूतनीकरण टीप', 'Renewal notes'))),
-              if (error != null) Text(error!, style: TextStyle(color: ctx.c.critical)),
+                  decoration: InputDecoration(
+                      labelText: L('नूतनीकरण टीप', 'Renewal notes'))),
+              if (error != null)
+                Text(error!, style: TextStyle(color: ctx.c.critical)),
             ]),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(L('रद्द', 'Cancel'))),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text(L('रद्द', 'Cancel'))),
             FilledButton(
                 key: const ValueKey('cp-save'),
                 onPressed: () async {
@@ -350,17 +397,26 @@ class _PlansScreenState extends State<PlansScreen> {
           builder: (context, snap) {
             if (snap.hasError) return EmptyState('⚠️', '${snap.error}');
             final list = snap.data;
-            if (list == null) return const Center(child: CircularProgressIndicator());
-            if (list.isEmpty) return EmptyState('📋', tr('अजून प्लॅन नाही · No plans yet'));
+            if (list == null) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (list.isEmpty) {
+              return EmptyState('📋', tr('अजून प्लॅन नाही · No plans yet'));
+            }
             return CardList([
               for (final p in list)
-                ListTile(
-                  key: ValueKey('plan-${p.id}'),
-                  title: Text('${p.name}${p.active ? '' : ' (${L('बंद', 'inactive')})'}'),
-                  subtitle: Text('${money(p.price)} · ${p.durationDays} ${L('दिवस', 'days')}'),
-                  trailing: IconButton(
-                      icon: const Icon(Icons.edit_outlined), onPressed: () => _edit(p)),
-                ),
+                Material(
+                    color: context.c.surface,
+                    child: ListTile(
+                      key: ValueKey('plan-${p.id}'),
+                      title: Text(
+                          '${p.name}${p.active ? '' : ' (${L('बंद', 'inactive')})'}'),
+                      subtitle: Text(
+                          '${money(p.price)} · ${p.durationDays} ${L('दिवस', 'days')}'),
+                      trailing: IconButton(
+                          icon: const Icon(Icons.edit_outlined),
+                          onPressed: () => _edit(p)),
+                    )),
             ]);
           },
         ),
@@ -370,32 +426,46 @@ class _PlansScreenState extends State<PlansScreen> {
     final app = context.read<AppState>();
     final name = TextEditingController(text: old?.name ?? '');
     final days = TextEditingController(text: '${old?.durationDays ?? 365}');
-    final price = TextEditingController(text: old == null ? '' : old.price.round().toString());
+    final price = TextEditingController(
+        text: old == null ? '' : old.price.round().toString());
     var active = old?.active ?? true;
     String? error;
     await showDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSt) => AlertDialog(
-          title: Text(old == null ? tr('नवीन प्लॅन · New plan') : tr('प्लॅन बदला · Edit plan')),
+          title: Text(old == null
+              ? tr('नवीन प्लॅन · New plan')
+              : tr('प्लॅन बदला · Edit plan')),
           content: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(key: const ValueKey('plan-name'), controller: name,
+            TextField(
+                key: const ValueKey('plan-name'),
+                controller: name,
                 decoration: InputDecoration(labelText: L('नाव', 'Name'))),
-            TextField(key: const ValueKey('plan-days'), controller: days,
+            TextField(
+                key: const ValueKey('plan-days'),
+                controller: days,
                 keyboardType: TextInputType.number,
-                decoration: InputDecoration(labelText: L('दिवस', 'Duration (days)'))),
-            TextField(key: const ValueKey('plan-price'), controller: price,
+                decoration:
+                    InputDecoration(labelText: L('दिवस', 'Duration (days)'))),
+            TextField(
+                key: const ValueKey('plan-price'),
+                controller: price,
                 keyboardType: TextInputType.number,
-                decoration: InputDecoration(labelText: L('किंमत ₹', 'Price ₹'))),
+                decoration:
+                    InputDecoration(labelText: L('किंमत ₹', 'Price ₹'))),
             SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 value: active,
                 title: Text(L('सुरू', 'Active')),
                 onChanged: (v) => setSt(() => active = v)),
-            if (error != null) Text(error!, style: TextStyle(color: ctx.c.critical)),
+            if (error != null)
+              Text(error!, style: TextStyle(color: ctx.c.critical)),
           ]),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(L('रद्द', 'Cancel'))),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(L('रद्द', 'Cancel'))),
             FilledButton(
                 key: const ValueKey('plan-save'),
                 onPressed: () async {

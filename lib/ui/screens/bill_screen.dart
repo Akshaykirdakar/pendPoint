@@ -269,7 +269,7 @@ class _BillScreenState extends State<BillScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Center(
-                      child: Text(app.settings.shop,
+                      child: Text(app.shopName,
                           style: baloo(
                               size: 14,
                               weight: FontWeight.w700,
@@ -342,7 +342,7 @@ class _BillScreenState extends State<BillScreen> {
   }
 
   String _message(AppState app, Bill bill) => WhatsAppService.billMessage(
-        shopName: app.settings.shop,
+        shopName: app.shopName,
         bill: bill,
         productLabel: (id) {
           final p = app.productOf(id);

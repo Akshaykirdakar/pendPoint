@@ -24,7 +24,10 @@ class NotificationBell extends StatelessWidget {
 }
 
 class NotificationCenterScreen extends StatelessWidget {
-  const NotificationCenterScreen({super.key});
+  /// Buttons shown above the list (the Super Admin tab: send / sent /
+  /// announcements).
+  final List<({String label, String key, Widget screen})> header;
+  const NotificationCenterScreen({this.header = const [], super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -41,12 +44,24 @@ class NotificationCenterScreen extends StatelessWidget {
               key: const ValueKey('notifications-all-read'),
               onTap: () => app.platform.markRead(list)),
       ],
-      body: list.isEmpty
-          ? EmptyState('📨', tr('अजून सूचना नाहीत · No notifications yet'))
-          : CardList([
-              for (final n in list)
-                _NoticeTile(n: n, unread: !n.isReadBy(uid)),
-            ]),
+      body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        for (final h in header)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: BigButton.ghost(tr(h.label),
+                key: ValueKey(h.key),
+                onTap: () => Navigator.of(context)
+                    .push(MaterialPageRoute(builder: (_) => h.screen))),
+          ),
+        if (header.isNotEmpty)
+          SectionHeader(L('माझ्या सूचना ($unread न वाचलेल्या)', 'Inbox ($unread unread)')),
+        if (list.isEmpty)
+          EmptyState('📨', tr('अजून सूचना नाहीत · No notifications yet'))
+        else
+          CardList([
+            for (final n in list) _NoticeTile(n: n, unread: !n.isReadBy(uid)),
+          ]),
+      ]),
     );
   }
 }

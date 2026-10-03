@@ -66,7 +66,24 @@ class HomeScreen extends StatelessWidget {
 
     return PendScaffold(
       titleMr: 'नमस्कार 👋',
-      titleEn: app.settings.shop,
+      titleEn: app.shopName,
+      // The shop's name, big — in every language.
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(app.shopName,
+              key: const ValueKey('home-shop-name'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: baloo(size: 22, weight: FontWeight.w800, color: context.c.brandInk)),
+          Text(L('नमस्कार 👋', 'Welcome 👋'),
+              style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w500,
+                  color: context.c.brandInk.withValues(alpha: 0.82))),
+        ],
+      ),
       actions: [
         if (app.storeContext != null) const NotificationBell(),
         BarAction('🔔 $alertCount',

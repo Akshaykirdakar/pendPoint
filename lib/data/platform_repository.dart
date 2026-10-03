@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../models/app_settings.dart';
 import '../models/platform.dart';
 import '../models/store.dart';
 
@@ -26,6 +27,16 @@ class NotificationQuery {
 abstract class PlatformRepository {
   Stream<List<Store>> watchStores();
   Stream<Store?> watchStore(String storeId);
+
+  /// One store's own settings (stores/{storeId}/meta/settings) — every
+  /// store has its own; null when the store has none saved yet.
+  Future<AppSettings?> loadStoreSettings(String storeId);
+  Stream<AppSettings?> watchStoreSettings(String storeId);
+  Future<void> saveStoreSettings(String storeId, AppSettings settings);
+
+  /// Sets only the shop name in stores/{storeId}/meta/settings (kept the
+  /// same as the store's name).
+  Future<void> setShopName(String storeId, String name);
 
   /// Changes only [fields] of stores/{storeId} (a store admin may change
   /// only name/contact fields — see [Store.ownerEditable]).
@@ -80,6 +91,28 @@ class FirestorePlatformRepository implements PlatformRepository {
   @override
   Future<void> updateStoreFields(String storeId, Map<String, dynamic> fields) =>
       db.collection('stores').doc(storeId).update(fields);
+
+  DocumentReference<Map<String, dynamic>> _settingsOf(String storeId) =>
+      db.doc('stores/$storeId/meta/settings');
+
+  @override
+  Future<AppSettings?> loadStoreSettings(String storeId) async {
+    final d = await _settingsOf(storeId).get();
+    return d.exists ? AppSettings.fromMap(d.data()!) : null;
+  }
+
+  @override
+  Stream<AppSettings?> watchStoreSettings(String storeId) => _settingsOf(storeId)
+      .snapshots()
+      .map((d) => d.exists ? AppSettings.fromMap(d.data()!) : null);
+
+  @override
+  Future<void> saveStoreSettings(String storeId, AppSettings settings) =>
+      _settingsOf(storeId).set(settings.toMap(), SetOptions(merge: true));
+
+  @override
+  Future<void> setShopName(String storeId, String name) =>
+      _settingsOf(storeId).set({'shop': name}, SetOptions(merge: true));
 
   @override
   Future<GlobalSettings> loadSettings({required bool admin}) async {
@@ -230,6 +263,28 @@ class InMemoryPlatformRepository implements PlatformRepository {
 
   /// Call after changing [stores] directly so live views update.
   void storesChanged() => _touch();
+
+  final Map<String, AppSettings> storeSettings = {};
+
+  @override
+  Future<AppSettings?> loadStoreSettings(String storeId) async =>
+      storeSettings[storeId]?.copy();
+
+  @override
+  Stream<AppSettings?> watchStoreSettings(String storeId) =>
+      _live(() => storeSettings[storeId]?.copy());
+
+  @override
+  Future<void> saveStoreSettings(String storeId, AppSettings settings) async {
+    storeSettings[storeId] = settings.copy();
+    _touch();
+  }
+
+  @override
+  Future<void> setShopName(String storeId, String name) async {
+    storeSettings[storeId] = (storeSettings[storeId] ?? AppSettings())..shop = name;
+    _touch();
+  }
 
   @override
   Future<void> updateStoreFields(

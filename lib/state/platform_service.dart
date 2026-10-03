@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../data/platform_repository.dart';
 import '../data/repository.dart';
+import '../models/app_settings.dart';
 import '../models/platform.dart';
 import '../models/staff.dart';
 import '../models/store.dart';
@@ -83,16 +84,96 @@ class PlatformService {
     return null;
   }
 
+  // ---- one store's own settings ----
+
+  /// Whether this login may change [storeId]'s settings: a super admin, or
+  /// that store's own admin (the rules say the same).
+  bool canEditStoreSettings(String storeId) {
+    final ctx = _ctx;
+    if (ctx == null) return false;
+    return ctx.isSuperAdmin || (ctx.isStoreAdmin && ctx.storeId == storeId);
+  }
+
+  Future<AppSettings> storeSettings(String storeId) async {
+    if (!canEditStoreSettings(storeId) && _ctx?.storeId != storeId) {
+      throw const StoreContextException('Settings belong to their store.');
+    }
+    return await _p.loadStoreSettings(storeId) ?? AppSettings();
+  }
+
+  /// Saves [after] as [storeId]'s settings (that store only) and audits
+  /// each changed setting with its old and new value.
+  Future<String?> saveStoreSettings(
+      String storeId, AppSettings before, AppSettings after) async {
+    if (!canEditStoreSettings(storeId)) {
+      return 'फक्त या दुकानाचा मालक सेटिंग्ज बदलू शकतो · Only this store\'s admin can change its settings';
+    }
+    if (after.shop.trim().isEmpty) {
+      return 'दुकानाचे नाव लिहा · Enter the shop name';
+    }
+    try {
+      await _p.saveStoreSettings(storeId, after);
+      // A new shop name renames the store too (one name everywhere).
+      if (after.shop.trim() != before.shop.trim()) {
+        final st = await repo.loadStore(storeId);
+        if (st != null && st.storeName != after.shop.trim()) {
+          final renamed = st.copyWith(
+              storeName: after.shop.trim(), updatedAt: DateTime.now());
+          await _p.updateStoreFields(storeId, {
+            'storeName': renamed.storeName,
+            'updatedAt': renamed.updatedAt.toIso8601String(),
+          });
+          await storeChanged(st, renamed);
+        }
+      }
+    } catch (e) {
+      return _err(e);
+    }
+    auditSettings(storeId, before, after);
+    return null;
+  }
+
+  /// One audit entry per changed setting of [storeId].
+  void auditSettings(String storeId, AppSettings before, AppSettings after) {
+    final a = before.toMap(), b = after.toMap();
+    final now = DateTime.now();
+    for (final k in b.keys) {
+      if ('${a[k]}' == '${b[k]}') continue;
+      unawaited(repo
+          .addAudit(AuditEntry(
+              storeId: storeId,
+              userId: _uid,
+              role: _ctx?.role ?? '',
+              action: 'SETTING_CHANGED',
+              entityType: 'SETTINGS',
+              entityId: storeId,
+              at: now,
+              field: k,
+              oldValue: a[k] == null ? '' : '${a[k]}',
+              newValue: b[k] == null ? '' : '${b[k]}'))
+          .catchError((_) {}));
+    }
+  }
+
   // ---- notification feeds ----
 
   /// This user's feed (from their StoreContext — never from input).
   NotificationQuery? myQuery() {
     final ctx = _ctx;
     if (ctx == null) return null;
-    if (ctx.isSuperAdmin) {
-      return const NotificationQuery(audiences: [Audience.superAdmin]);
-    }
     final sid = ctx.storeId;
+    if (ctx.isSuperAdmin) {
+      // Inside one store: only that store's notifications (what its users
+      // see, plus platform events about it). All stores only on the Super
+      // Admin screens (no store open).
+      return sid == null
+          ? const NotificationQuery(audiences: [Audience.superAdmin])
+          : NotificationQuery(storeId: sid, audiences: const [
+              Audience.storeAll,
+              Audience.storeAdmin,
+              Audience.superAdmin,
+            ]);
+    }
     if (sid == null) return null;
     return NotificationQuery(
         storeId: sid,
@@ -336,11 +417,23 @@ class PlatformService {
     fields['updatedAt'] = DateTime.now().toIso8601String();
     try {
       await _p.updateStoreFields(before.id, fields);
+      // The shop name on bills is the store's name — one name everywhere.
+      if (fields.containsKey('storeName')) {
+        await _p.setShopName(before.id, after.storeName);
+      }
     } catch (e) {
       return _err(e);
     }
     await storeChanged(before, after);
     return null;
+  }
+
+  /// After the super admin renamed a store: its shop settings get the same
+  /// name.
+  Future<void> syncShopName(String storeId, String name) async {
+    try {
+      await _p.setShopName(storeId, name);
+    } catch (_) {}
   }
 
   // ---- staff changes ----

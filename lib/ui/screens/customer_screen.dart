@@ -137,7 +137,7 @@ class CustomerScreen extends StatelessWidget {
         channel,
         cu.mobile,
         ReminderService.message(
-            shopName: app.settings.shop,
+            shopName: app.shopName,
             customerName: cu.name,
             due: cu.outstanding));
     if (!ok && context.mounted) {

@@ -183,7 +183,7 @@ class ReportExportService {
     final brand =
         r.filter.brandId == null ? null : app.brandOf(r.filter.brandId!);
     final text = StringBuffer()
-      ..writeln(app.settings.shop)
+      ..writeln(app.shopName)
       ..writeln('विक्री अहवाल · Sales Report')
       ..writeln(_filterDateLabel(r.filter))
       ..writeln('शाखा · Branch: ${_branchLabel(app, r.filter.branchId)}')
@@ -201,7 +201,7 @@ class ReportExportService {
   static Future<void> sharePaymentMixSummaryText(
       AppState app, ReportResult r) async {
     final text = StringBuffer()
-      ..writeln(app.settings.shop)
+      ..writeln(app.shopName)
       ..writeln('पेमेंट विभागणी · Payment Mix')
       ..writeln(_filterDateLabel(r.filter))
       ..writeln()
@@ -220,25 +220,25 @@ class ReportExportService {
 
   static Future<ExportResult> downloadReportPdf(AppState app, ReportResult r) =>
       _download(() => _buildReportPdf(app, r),
-          '${_fileStem(app.settings.shop, 'sales_report')}.pdf', _pdfMime);
+          '${_fileStem(app.shopName, 'sales_report')}.pdf', _pdfMime);
 
   static Future<ExportResult> shareReportPdfFile(AppState app, ReportResult r) =>
       _share(
           () => _buildReportPdf(app, r),
-          '${_fileStem(app.settings.shop, 'sales_report')}.pdf',
+          '${_fileStem(app.shopName, 'sales_report')}.pdf',
           _pdfMime,
           'Sales Report · विक्री अहवाल');
 
   static Future<ExportResult> downloadReportExcel(
           AppState app, ReportResult r) =>
       _download(() async => _buildReportXlsx(app, r),
-          '${_fileStem(app.settings.shop, 'sales_report')}.xlsx', _xlsxMime);
+          '${_fileStem(app.shopName, 'sales_report')}.xlsx', _xlsxMime);
 
   static Future<ExportResult> shareReportExcelFile(
           AppState app, ReportResult r) =>
       _share(
           () async => _buildReportXlsx(app, r),
-          '${_fileStem(app.settings.shop, 'sales_report')}.xlsx',
+          '${_fileStem(app.shopName, 'sales_report')}.xlsx',
           _xlsxMime,
           'Sales Report · विक्री अहवाल');
 
@@ -251,7 +251,7 @@ class ReportExportService {
     doc.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       build: (ctx) => [
-        pw.Text(app.settings.shop,
+        pw.Text(app.shopName,
             style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
         pw.Text('विक्री अहवाल · Sales Report',
             style: const pw.TextStyle(fontSize: 13)),
@@ -333,7 +333,7 @@ class ReportExportService {
     final brand =
         r.filter.brandId == null ? null : app.brandOf(r.filter.brandId!);
     final summary = XlsxSheet('Summary', [
-      ['Shop', app.settings.shop],
+      ['Shop', app.shopName],
       ['Report Period', _filterDateLabel(r.filter)],
       ['Branch Filter', _branchLabel(app, r.filter.branchId)],
       ['Product Filter', _productLabel(app, r.filter.productId)],
@@ -393,13 +393,13 @@ class ReportExportService {
   static Future<ExportResult> downloadProductHistoryPdf(
           AppState app, Product product, ProductHistoryResult h) =>
       _download(() => _buildProductHistoryPdf(app, product, h),
-          '${_fileStem(app.settings.shop, 'product_history')}.pdf', _pdfMime);
+          '${_fileStem(app.shopName, 'product_history')}.pdf', _pdfMime);
 
   static Future<ExportResult> shareProductHistoryPdfFile(
           AppState app, Product product, ProductHistoryResult h) =>
       _share(
           () => _buildProductHistoryPdf(app, product, h),
-          '${_fileStem(app.settings.shop, 'product_history')}.pdf',
+          '${_fileStem(app.shopName, 'product_history')}.pdf',
           _pdfMime,
           'Product Sales History — ${product.name}');
 
@@ -407,14 +407,14 @@ class ReportExportService {
           AppState app, Product product, ProductHistoryResult h) =>
       _download(
           () async => _buildProductHistoryXlsx(app, product, h),
-          '${_fileStem(app.settings.shop, 'product_history')}.xlsx',
+          '${_fileStem(app.shopName, 'product_history')}.xlsx',
           _xlsxMime);
 
   static Future<ExportResult> shareProductHistoryExcelFile(
           AppState app, Product product, ProductHistoryResult h) =>
       _share(
           () async => _buildProductHistoryXlsx(app, product, h),
-          '${_fileStem(app.settings.shop, 'product_history')}.xlsx',
+          '${_fileStem(app.shopName, 'product_history')}.xlsx',
           _xlsxMime,
           'Product Sales History — ${product.name}');
 
@@ -423,26 +423,26 @@ class ReportExportService {
   static Future<ExportResult> downloadPaymentMixPdf(
           AppState app, ReportResult r) =>
       _download(() => _buildPaymentMixPdf(app, r),
-          '${_fileStem(app.settings.shop, 'payment_mix')}.pdf', _pdfMime);
+          '${_fileStem(app.shopName, 'payment_mix')}.pdf', _pdfMime);
 
   static Future<ExportResult> sharePaymentMixPdfFile(
           AppState app, ReportResult r) =>
       _share(
           () => _buildPaymentMixPdf(app, r),
-          '${_fileStem(app.settings.shop, 'payment_mix')}.pdf',
+          '${_fileStem(app.shopName, 'payment_mix')}.pdf',
           _pdfMime,
           'Payment Mix · पेमेंट विभागणी');
 
   static Future<ExportResult> downloadPaymentMixExcel(
           AppState app, ReportResult r) =>
       _download(() async => _buildPaymentMixXlsx(app, r),
-          '${_fileStem(app.settings.shop, 'payment_mix')}.xlsx', _xlsxMime);
+          '${_fileStem(app.shopName, 'payment_mix')}.xlsx', _xlsxMime);
 
   static Future<ExportResult> sharePaymentMixExcelFile(
           AppState app, ReportResult r) =>
       _share(
           () async => _buildPaymentMixXlsx(app, r),
-          '${_fileStem(app.settings.shop, 'payment_mix')}.xlsx',
+          '${_fileStem(app.shopName, 'payment_mix')}.xlsx',
           _xlsxMime,
           'Payment Mix · पेमेंट विभागणी');
 
@@ -457,7 +457,7 @@ class ReportExportService {
     doc.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       build: (ctx) => [
-        pw.Text(app.settings.shop,
+        pw.Text(app.shopName,
             style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
         pw.Text('पेमेंट विभागणी · Payment Mix',
             style: const pw.TextStyle(fontSize: 13)),
@@ -519,7 +519,7 @@ class ReportExportService {
         r.filter.brandId == null ? null : app.brandOf(r.filter.brandId!);
     final counts = r.paymentCounts;
     final summary = XlsxSheet('Payment Mix', [
-      ['Shop', app.settings.shop],
+      ['Shop', app.shopName],
       ['Report Period', _filterDateLabel(r.filter)],
       ['Branch Filter', _branchLabel(app, r.filter.branchId)],
       ['Product Filter', _productLabel(app, r.filter.productId)],
@@ -564,7 +564,7 @@ class ReportExportService {
     doc.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       build: (ctx) => [
-        pw.Text(app.settings.shop,
+        pw.Text(app.shopName,
             style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
         pw.Text('उत्पादन इतिहास · Product Sales History',
             style: const pw.TextStyle(fontSize: 13)),
@@ -675,13 +675,13 @@ class ReportExportService {
   static Future<ExportResult> downloadQrSheetPdf(
           AppState app, List<Product> products, {Brand? brand}) =>
       _download(() => _buildQrSheetPdf(app, products, brand),
-          '${_fileStem(app.settings.shop, 'qr_sheet')}.pdf', _pdfMime);
+          '${_fileStem(app.shopName, 'qr_sheet')}.pdf', _pdfMime);
 
   static Future<ExportResult> shareQrSheetPdf(
           AppState app, List<Product> products, {Brand? brand}) =>
       _share(
           () => _buildQrSheetPdf(app, products, brand),
-          '${_fileStem(app.settings.shop, 'qr_sheet')}.pdf',
+          '${_fileStem(app.shopName, 'qr_sheet')}.pdf',
           _pdfMime,
           'QR Sheet · QR शीट');
 
@@ -714,7 +714,7 @@ class ReportExportService {
     doc.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       build: (ctx) => [
-        pw.Text(app.settings.shop,
+        pw.Text(app.shopName,
             style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
         pw.Text('QR कॅटलॉग शीट · QR Catalogue Sheet',
             style: const pw.TextStyle(fontSize: 13)),

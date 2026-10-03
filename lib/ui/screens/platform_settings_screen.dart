@@ -224,7 +224,9 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen> {
       _busy = true;
       _error = null;
     });
-    final error = await context.read<AppState>().platform.saveSettings(next);
+    final app = context.read<AppState>();
+    final error = await app.platform.saveSettings(next);
+    if (error == null) await app.applyPlatformLanguage();
     if (!mounted) return;
     setState(() {
       _busy = false;

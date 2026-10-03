@@ -11,6 +11,7 @@ import 'models/app_settings.dart';
 import 'state/app_state.dart';
 import 'ui/screens/sign_in_screen.dart';
 import 'ui/screens/super_admin_screens.dart';
+import 'ui/screens/super_admin_shell.dart';
 import 'ui/root_shell.dart';
 import 'utils/theme.dart';
 import 'utils/lang.dart';
@@ -230,7 +231,7 @@ class SessionScreen extends StatelessWidget {
                       'This store is currently inactive. Please contact the administrator.')),
               SessionState.error =>
                 _DataLoadFailure(error: app.bootstrapError ?? 'error'),
-              SessionState.superAdmin => const SuperAdminHome(),
+              SessionState.superAdmin => const SuperAdminShell(),
               SessionState.store => app.loading
                   ? _Splash(
                       label: tr('दुकानाचा डेटा आणत आहे... · Loading shop data...'))

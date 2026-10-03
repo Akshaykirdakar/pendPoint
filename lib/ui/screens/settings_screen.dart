@@ -32,9 +32,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _shopCtrl =
-        TextEditingController(text: context.read<AppState>().settings.shop);
+        TextEditingController(text: context.read<AppState>().shopName);
     _shopCtrl.addListener(() => setState(() => _shopChanged =
-        _shopCtrl.text.trim() != context.read<AppState>().settings.shop));
+        _shopCtrl.text.trim() != context.read<AppState>().shopName));
   }
 
   @override
@@ -47,15 +47,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final c = context.c;
-    final isAdmin = app.staff.any((s) =>
-        s.id == FirebaseAuth.instance.currentUser?.uid &&
-        s.isAdmin &&
-        s.active);
+    // This store's admin (or a super admin inside the store) changes the
+    // store's settings; staff see them read-only.
+    final isAdmin = app.canEditSettings;
 
     return PendScaffold(
       titleMr: 'सेटिंग्ज',
       titleEn: 'Settings',
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (app.store != null)
+          Container(
+            key: const ValueKey('settings-store-scope'),
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+                color: c.brand.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12)),
+            child: Text(
+                isAdmin
+                    ? L('🏪 या सेटिंग्ज फक्त ${app.store!.storeName} (${app.store!.id}) साठी आहेत. इतर दुकानांवर परिणाम होत नाही.',
+                        '🏪 These settings apply only to ${app.store!.storeName} (${app.store!.id}). Other stores are not affected.')
+                    : L('🏪 ${app.store!.storeName} च्या सेटिंग्ज — फक्त दुकानाचा मालक बदलू शकतो.',
+                        '🏪 Settings of ${app.store!.storeName} — only the store admin can change them.'),
+                style: TextStyle(fontSize: 12.5, color: c.ink, fontWeight: FontWeight.w600)),
+          ),
         Padding(
             padding: const EdgeInsets.only(left: 2, bottom: 5),
             child: Text(tr('दुकानाचे नाव · Shop name'),
@@ -223,7 +239,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           padding: const EdgeInsets.all(14),
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(FirebaseAuth.instance.currentUser?.email ?? 'Signed-in user',
+            Text(_signedInEmail(),
                 style: TextStyle(fontWeight: FontWeight.w700, color: c.ink)),
             if (app.store != null) ...[
               const SizedBox(height: 8),
@@ -396,6 +412,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _save(BuildContext context, AppState app,
       void Function(AppSettings) mutate) async {
+    if (!app.canEditSettings) {
+      showToast(context,
+          tr('फक्त दुकानाचा मालक सेटिंग्ज बदलू शकतो · Only the store admin can change settings'));
+      return;
+    }
     try {
       await app.updateSettings(mutate);
       if (context.mounted) showToast(context, tr('जतन झाले · Saved'));
@@ -549,5 +570,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
       ]),
     );
+  }
+}
+
+/// The signed-in user's email (none without Firebase, e.g. the demo).
+String _signedInEmail() {
+  try {
+    return FirebaseAuth.instance.currentUser?.email ?? 'Signed-in user';
+  } catch (_) {
+    return 'Signed-in user';
   }
 }

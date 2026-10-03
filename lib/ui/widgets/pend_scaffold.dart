@@ -20,6 +20,9 @@ class PendScaffold extends StatelessWidget {
   /// keep the running total and Save button visible while rows scroll.
   final Widget? bottomBar;
 
+  /// Replaces the Marathi/English title (e.g. Home: the shop's name).
+  final Widget? title;
+
   const PendScaffold({
     required this.titleMr,
     required this.titleEn,
@@ -29,6 +32,7 @@ class PendScaffold extends StatelessWidget {
     this.floatingActionButton,
     this.bottomBar,
     this.padding = const EdgeInsets.fromLTRB(15, 16, 15, 28),
+    this.title,
     super.key,
   });
 
@@ -42,7 +46,7 @@ class PendScaffold extends StatelessWidget {
         foregroundColor: c.brandInk,
         elevation: 0,
         titleSpacing: 4,
-        title: Column(
+        title: title ?? Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
