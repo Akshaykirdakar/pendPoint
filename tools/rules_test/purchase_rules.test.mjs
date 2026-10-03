@@ -8,7 +8,7 @@ import {
   initializeTestEnvironment, assertFails, assertSucceeds,
 } from '@firebase/rules-unit-testing';
 import {
-  doc, getDoc, getDocs, setDoc, collection, query, orderBy, limit,
+  doc, getDoc, getDocs, setDoc, collection, query, orderBy, limit, where,
   runTransaction, increment,
 } from 'firebase/firestore';
 
@@ -19,6 +19,7 @@ const env = await initializeTestEnvironment({
 });
 
 const now = () => new Date().toISOString();
+const S = 'STORE001';
 let pass = 0;
 async function check(name, fn) {
   try { await fn(); pass++; console.log(`PASS ${name}`); }
@@ -29,12 +30,14 @@ async function seed() {
   await env.clearFirestore();
   await env.withSecurityRulesDisabled(async (ctx) => {
     const db = ctx.firestore();
-    await setDoc(doc(db, 'staff/owner1'), { name: 'Owner', role: 'admin', active: true });
-    await setDoc(doc(db, 'staff/staff1'), { name: 'Counter', role: 'staff', active: true });
-    await setDoc(doc(db, 'products/p1'), { name: 'Milk Booster', brandId: 'b1', bagWeightKg: 50 });
-    await setDoc(doc(db, 'suppliers/sup1'), { name: 'ABC Traders' });
-    await setDoc(doc(db, 'stock/p1'), { bagsRemaining: 5, looseKgRemaining: 0 });
-    await setDoc(doc(db, 'meta/counters'), { bill: 1000, purchase: 0 });
+    // Multi-store: the shop is store STORE001; every record carries it.
+    await setDoc(doc(db, 'stores/STORE001'), { storeCode: 'STORE001', storeName: 'Main', status: 'ACTIVE' });
+    await setDoc(doc(db, 'staff/owner1'), { name: 'Owner', role: 'admin', active: true, storeId: S });
+    await setDoc(doc(db, 'staff/staff1'), { name: 'Counter', role: 'staff', active: true, storeId: S });
+    await setDoc(doc(db, 'products/p1'), { name: 'Milk Booster', brandId: 'b1', bagWeightKg: 50, storeId: S });
+    await setDoc(doc(db, 'suppliers/sup1'), { name: 'ABC Traders', storeId: S });
+    await setDoc(doc(db, 'stock/p1'), { bagsRemaining: 5, looseKgRemaining: 0, storeId: S });
+    await setDoc(doc(db, 'stores/STORE001/meta/counters'), { bill: 1000, purchase: 0 });
   });
 }
 
@@ -43,7 +46,7 @@ const as = (uid) => (uid ? env.authenticatedContext(uid) : env.unauthenticatedCo
 // FirestoreRepository.nextPurchaseNumber()
 function nextPurchaseNumber(db) {
   return runTransaction(db, async (tx) => {
-    const ref = doc(db, 'meta/counters');
+    const ref = doc(db, 'stores/STORE001/meta/counters');
     const snap = await tx.get(ref);
     const next = (snap.data()?.purchase ?? 0) + 1;
     tx.set(ref, { purchase: next }, { merge: true });
@@ -58,7 +61,7 @@ function batchDoc({ bags, loose = 0 }) {
     bagsReceived: bags, bagsAvailable: bags, looseKgAvailable: loose,
     bagsSold: 0, looseKgSold: 0, bagsReturned: 0, looseKgReturned: 0,
     bagsAdjusted: 0, looseKgAdjusted: 0, status: 'active', sourceBatchId: null,
-    createdAt: now(), updatedAt: now(),
+    createdAt: now(), updatedAt: now(), storeId: S,
   };
 }
 
@@ -68,11 +71,11 @@ function commitPurchase(db, { id, bags = 10, status = 'final', batch } = {}) {
     const batchId = `B-${id}`;
     tx.set(doc(db, `batches/${batchId}`), batch ?? batchDoc({ bags }));
     tx.set(doc(db, 'stock/p1'),
-      { bagsRemaining: increment(bags), looseKgRemaining: increment(0) }, { merge: true });
+      { storeId: S, productId: 'p1', bagsRemaining: increment(bags), looseKgRemaining: increment(0) }, { merge: true });
     tx.set(doc(db, `stockLogs/L-${id}`), {
       productId: 'p1', type: 'purchase', bagsDelta: bags, looseKgDelta: 0, cost: 1200,
       batchNo: 'W-1', note: `purchase #${id}`, createdAt: now(), branchId: 'br1',
-      batchId, supplierId: 'sup1',
+      batchId, supplierId: 'sup1', storeId: S,
     });
     const pref = doc(db, `purchases/${id}`);
     tx.set(pref, {
@@ -80,19 +83,19 @@ function commitPurchase(db, { id, bags = 10, status = 'final', batch } = {}) {
       supplierBillNo: 'INV-1', purchaseDate: now(), subtotal: bags * 1200,
       otherCharges: 0, totalAmount: bags * 1200, status, branchId: 'br1',
       createdBy: 'x', createdAt: now(), revision: 0, originalPurchaseId: null,
-      replacedByPurchaseId: null, billPhotoUrl: null, billPhotoPath: null,
+      replacedByPurchaseId: null, billPhotoUrl: null, billPhotoPath: null, storeId: S,
     });
     tx.set(doc(pref, 'purchaseItems/000'), {
       productId: 'p1', brandId: 'b1', bags, purchaseRate: 1200, amount: bags * 1200,
       batchId, batchNo: 'W-1', expiry: '2026-12-31T00:00:00.000',
-      manufactureDate: null, sellingRateAtPurchase: 1450,
+      manufactureDate: null, sellingRateAtPurchase: 1450, storeId: S,
     });
   });
 }
 
 // Loading purchase history, as FirestoreRepository.loadHistory() does.
 async function readHistory(db) {
-  const snap = await getDocs(query(collection(db, 'purchases'), orderBy('createdAt', 'desc'), limit(500)));
+  const snap = await getDocs(query(collection(db, 'purchases'), where('storeId', '==', S), orderBy('createdAt', 'desc'), limit(500)));
   for (const d of snap.docs) await getDocs(collection(d.ref, 'purchaseItems'));
   return snap.size;
 }
@@ -182,8 +185,8 @@ await check('staff: may NOT void/edit a purchase or change its amounts', async (
 await check('staff: still cannot write masters (products / suppliers)', async () => {
   await seed();
   const db = as('staff1');
-  await assertFails(setDoc(doc(db, 'products/p9'), { name: 'x' }));
-  await assertFails(setDoc(doc(db, 'suppliers/s9'), { name: 'x' }));
+  await assertFails(setDoc(doc(db, 'products/p9'), { name: 'x', storeId: S }));
+  await assertFails(setDoc(doc(db, 'suppliers/s9'), { name: 'x', storeId: S }));
 });
 
 await check('signed-out: no reads, no purchase writes', async () => {
@@ -201,14 +204,14 @@ function commitSale(db, { id, bags = 2, batchId = 'B-PUR1' }) {
     const b = (await tx.get(bref)).data();
     tx.set(bref, { ...b, bagsAvailable: b.bagsAvailable - bags, bagsSold: b.bagsSold + bags, updatedAt: now() });
     tx.set(doc(db, 'stock/p1'),
-      { bagsRemaining: increment(-bags), looseKgRemaining: increment(0) }, { merge: true });
-    tx.set(doc(db, `stockLogs/S-${id}`), { productId: 'p1', type: 'sale', bagsDelta: -bags, createdAt: now(), billId: id });
+      { storeId: S, productId: 'p1', bagsRemaining: increment(-bags), looseKgRemaining: increment(0) }, { merge: true });
+    tx.set(doc(db, `stockLogs/S-${id}`), { productId: 'p1', type: 'sale', bagsDelta: -bags, createdAt: now(), billId: id, storeId: S });
     const ref = doc(db, `bills/${id}`);
     tx.set(ref, { billNumber: 1001, customerId: null, customerName: '', subtotal: 2900, discountTotal: 0,
       totalAmount: 2900, payments: [{ mode: 'cash', amount: 2900 }], status: 'final', createdAt: now(),
-      createdBy: 'x', branchId: 'br1', revision: 0, originalBillId: null, replacedByBillId: null });
+      createdBy: 'x', branchId: 'br1', revision: 0, originalBillId: null, replacedByBillId: null, storeId: S });
     tx.set(doc(ref, 'billItems/0'), { productId: 'p1', saleType: 'bag', quantityOrWeight: bags, rate: 1450,
-      catalogRateAtSale: 1450, lineTotal: 2900, batchId });
+      catalogRateAtSale: 1450, lineTotal: 2900, batchId, storeId: S });
   });
 }
 
@@ -218,7 +221,7 @@ for (const [who, uid] of [['owner', 'owner1'], ['staff', 'staff1']]) {
     await env.withSecurityRulesDisabled(async (ctx) => commitPurchase(ctx.firestore(), { id: 'PUR1', bags: 10 }));
     const db = as(uid);
     await assertSucceeds(runTransaction(db, async (tx) => {
-      const ref = doc(db, 'meta/counters');
+      const ref = doc(db, 'stores/STORE001/meta/counters');
       const n = ((await tx.get(ref)).data()?.bill ?? 1000) + 1;
       tx.set(ref, { bill: n }, { merge: true });
     }));

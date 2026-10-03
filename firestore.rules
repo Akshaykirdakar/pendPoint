@@ -1,18 +1,58 @@
 rules_version = '2';
 
-// पेंड Point — Firestore security rules.
-// Model: the shop owner role is stored in the protected staff/{uid} document.
-// It is not inferred from client-side data or an email address.
+// पेंड Point — Firestore security rules (multi-store).
+//
+// One Firebase project, many stores. Every store-owned document carries
+// `storeId`. A user's role and store live in their protected staff/{uid}
+// document — never inferred from client data or an email address.
+//
+//   SUPER_ADMIN ('super_admin') — manages stores and store users; may work
+//                                  in any store.
+//   STORE_ADMIN ('admin')       — owner of ONE store.
+//   STAFF       ('staff')       — counter staff of ONE store.
+//
+// Every rule below is   store isolation  AND  the existing role permission
+// (never OR): a store user must belong to the document's store, that store
+// must be ACTIVE, their account must be active, and they must hold the
+// permission the action already needed before multi-store.
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isSignedIn() { return request.auth != null; }
-    function isAdmin() {
-      return isSignedIn()
-        && exists(/databases/$(database)/documents/staff/$(request.auth.uid))
-        && get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.role == 'admin';
+    // ---- who is asking ----
+    function signedIn() { return request.auth != null; }
+    function myDoc() { return /databases/$(database)/documents/staff/$(request.auth.uid); }
+    function me() { return get(myDoc()).data; }
+    function hasProfile() { return signedIn() && exists(myDoc()); }
+    function isActiveUser() { return hasProfile() && me().get('active', true) == true; }
+    function isSuperAdmin() { return isActiveUser() && me().role == 'super_admin'; }
+    function myStore() { return me().get('storeId', null); }
+    function storeIsActive(sid) {
+      return get(/databases/$(database)/documents/stores/$(sid)).data.get('status', 'ACTIVE') == 'ACTIVE';
     }
-    function isStaff() { return isSignedIn(); } // any signed-in staff member
+
+    // A store user of store [sid]: active account, assigned to [sid], and
+    // [sid] is an existing, active store.
+    function isStoreUser(sid) {
+      return isActiveUser()
+        && me().role in ['admin', 'staff']
+        && sid is string
+        && myStore() == sid
+        && storeIsActive(sid);
+    }
+    function isStoreAdmin(sid) { return isStoreUser(sid) && me().role == 'admin'; }
+
+    // May work with store [sid]'s data / as its owner.
+    function canUse(sid) { return isSuperAdmin() || isStoreUser(sid); }
+    function canAdmin(sid) { return isSuperAdmin() || isStoreAdmin(sid); }
+
+    // ---- the document being touched ----
+    function docStore() { return resource.data.storeId; }
+    function newStore() { return request.resource.data.storeId; }
+    // A store's records can never be moved to another store by a client.
+    function keepsStore() { return request.resource.data.storeId == resource.data.storeId; }
+    // Reading a document that does not exist reveals nothing (the app's
+    // transactions check existence first); an existing one only to its store.
+    function canGet() { return resource == null ? isActiveUser() : canUse(resource.data.storeId); }
 
     // A batch may never be stored with negative available stock — the app
     // re-checks this inside its stock transaction, and the rules enforce it
@@ -24,103 +64,289 @@ service cloud.firestore {
     }
 
     // Void / edit may only change a bill's or purchase's status markers —
-    // amounts, items, party and date stay exactly as they were saved.
+    // amounts, items, party, date and store stay exactly as they were saved.
     function onlyStatusChange(replacedField) {
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(['status', replacedField, 'statusChangedAt'])
         && request.resource.data.status == 'void';
     }
 
-    // Catalogue: everyone signed in reads; only admin writes prices/products.
-    match /brands/{id}   { allow read: if isStaff(); allow write: if isAdmin(); }
-    match /products/{id} { allow read: if isStaff(); allow write: if isAdmin(); }
-
-    // Branch & Supplier masters: everyone signed in reads (needed for Stock
-    // In's Branch/Supplier dropdowns); only admin manages the masters
-    // themselves (see More → Branches / Suppliers, admin-gated in the app).
-    // Party Master: suppliers are the purchase parties and customers (below)
-    // the sales parties; a "both" party has one doc in each, same id — so
-    // adding a purchase party stays admin-only.
-    match /branches/{id}  { allow read: if isStaff(); allow write: if isAdmin(); }
-    match /suppliers/{id} { allow read: if isStaff(); allow write: if isAdmin(); }
-
-    // Stock: staff read; staff may write via app (sale deduction, stock-in).
-    match /stock/{id}     { allow read, write: if isStaff(); }
-    match /stockLogs/{id} { allow read, create: if isStaff(); allow update, delete: if isAdmin(); }
-
-    // Batches: the real, depletable inventory lots — staff write via app
-    // (stock-in creates/tops-up a batch, a sale/void/transfer depletes or
-    // credits one). Never hard-deleted by the app; deletion is admin-only as
-    // a last resort.
-    match /batches/{id} {
-      allow read: if isStaff();
-      allow create, update: if isStaff() && validBatch();
-      allow delete: if isAdmin();
-    }
-
-    // Bills: staff create & read; void and edit (edit = void the original
-    // + create a corrected revision, in one transaction) are admin-only and
-    // can only flip the status markers. Bills are never deleted.
-    match /bills/{billId} {
-      allow read: if isStaff();
-      allow create: if isStaff() && request.resource.data.status == 'final';
-      allow update: if isAdmin() && onlyStatusChange('replacedByBillId');
-      allow delete: if false;     // never hard-delete a bill
-      match /billItems/{itemId} { allow read, create: if isStaff(); allow update, delete: if false; }
-    }
-
-    // Purchase bills: same lifecycle as bills — staff record purchases,
-    // only admin voids/edits them, never deleted. An optional bill photo is
-    // written with the purchase (billPhotoUrl/billPhotoPath) at create time,
-    // so no update rule is needed for it.
-    match /purchases/{purchaseId} {
-      allow read: if isStaff();
-      allow create: if isStaff() && request.resource.data.status == 'final';
-      allow update: if isAdmin() && onlyStatusChange('replacedByPurchaseId');
+    // ---- GLOBAL: stores ----
+    // Only a super admin creates/edits stores (never deleted — deactivate
+    // instead). A store user may read their own store (also when it is
+    // inactive, so the app can say so).
+    match /stores/{sid} {
+      allow get: if isSuperAdmin() || (isActiveUser() && myStore() == sid);
+      allow list: if isSuperAdmin();
+      allow create: if isSuperAdmin()
+        && request.resource.data.storeCode == sid
+        && request.resource.data.status in ['ACTIVE', 'INACTIVE'];
+      // Super admin: anything but the code/creation fields. A store's own
+      // admin: only its name and contact/owner details — never status,
+      // plan or payment fields.
+      allow update: if (isSuperAdmin()
+          && !request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['storeCode', 'createdAt', 'createdBy'])
+          && request.resource.data.status in ['ACTIVE', 'INACTIVE'])
+        || (isStoreAdmin(sid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+               'storeName', 'legalName', 'address', 'city', 'state', 'pincode',
+               'phone', 'email', 'gstNumber', 'ownerName', 'ownerEmail',
+               'ownerPhone', 'ownerWhatsApp', 'notifyChannel', 'updatedAt'])
+          && request.resource.data.storeName is string
+          && request.resource.data.storeName.size() > 0);
       allow delete: if false;
-      match /purchaseItems/{itemId} { allow read, create: if isStaff(); allow update, delete: if false; }
+
+      // Subscription payments of this store: recorded by the super admin;
+      // the store's own admin may read them; nobody else (other stores
+      // never). Never deleted.
+      match /payments/{pid} {
+        allow read: if isSuperAdmin() || isStoreAdmin(sid);
+        allow create, update: if isSuperAdmin();
+        allow delete: if false;
+      }
+      // Plan reminders already sent (one document per reminder key, so the
+      // same reminder is never generated twice). Super admin only.
+      match /reminders/{key} {
+        allow read, create: if isSuperAdmin();
+        allow update, delete: if false;
+      }
+
+      // Per-store counters (any user of the store) and settings (its owner).
+      match /meta/{doc} {
+        allow read: if canUse(sid);
+        allow write: if doc == 'counters' ? canUse(sid) : canAdmin(sid);
+      }
     }
 
-    // Draft bills: unfinished sales — saved work only, with no stock,
-    // payment or khata effect (those are written only when the sale is
-    // finalized, as a normal bill). Same people who may create bills may
-    // keep drafts. Every save must carry the next version number, so a
-    // phone holding an older copy cannot overwrite newer changes. A draft
-    // is deleted when finalized (inside the sale transaction) or by hand.
+    // ---- GLOBAL + store assignment: staff ----
+    // Clients can never create or elevate a super admin; a store admin
+    // manages only their own store's admins/staff and cannot move anyone to
+    // another store; nobody can demote or deactivate themselves.
+    match /staff/{id} {
+      function selfSafe() {
+        return id != request.auth.uid
+          || (request.resource.data.role == resource.data.role
+              && request.resource.data.active == resource.data.active);
+      }
+      allow get: if signedIn() && (request.auth.uid == id || isSuperAdmin()
+        || (resource != null && isStoreUser(resource.data.get('storeId', null))));
+      allow list: if isSuperAdmin() || isStoreUser(resource.data.storeId);
+      allow create: if (isSuperAdmin()
+          && request.resource.data.role in ['admin', 'staff']
+          && request.resource.data.storeId is string)
+        || (isStoreAdmin(newStore())
+          && request.resource.data.role in ['admin', 'staff']);
+      allow update: if (isSuperAdmin()
+          && request.resource.data.role in ['admin', 'staff', 'super_admin']
+          && (resource.data.role != 'super_admin' || id == request.auth.uid)
+          && (request.resource.data.role != 'super_admin' || resource.data.role == 'super_admin')
+          && selfSafe())
+        || (isStoreAdmin(docStore()) && keepsStore()
+          && resource.data.role in ['admin', 'staff']
+          && request.resource.data.role in ['admin', 'staff']
+          && selfSafe());
+      allow delete: if false;
+    }
+
+    // ---- STORE: catalogue & masters (owner writes) ----
+    match /brands/{id} {
+      allow get: if canGet();
+      allow list: if canUse(resource.data.storeId);
+      allow create: if canAdmin(newStore());
+      allow update: if canAdmin(docStore()) && keepsStore();
+      allow delete: if canAdmin(docStore());
+    }
+    match /products/{id} {
+      allow get: if canGet();
+      allow list: if canUse(resource.data.storeId);
+      allow create: if canAdmin(newStore());
+      allow update: if canAdmin(docStore()) && keepsStore();
+      allow delete: if canAdmin(docStore());
+    }
+    // Branch & Supplier masters: every store user reads (Stock In needs
+    // them); only the owner manages them. Suppliers are the purchase
+    // parties, so adding one stays owner-only.
+    match /branches/{id} {
+      allow get: if canGet();
+      allow list: if canUse(resource.data.storeId);
+      allow create: if canAdmin(newStore());
+      allow update: if canAdmin(docStore()) && keepsStore();
+      allow delete: if canAdmin(docStore());
+    }
+    match /suppliers/{id} {
+      allow get: if canGet();
+      allow list: if canUse(resource.data.storeId);
+      allow create: if canAdmin(newStore());
+      allow update: if canAdmin(docStore()) && keepsStore();
+      allow delete: if canAdmin(docStore());
+    }
+
+    // ---- STORE: stock ----
+    // Stock rollup: staff write via the app (sale deduction, stock-in).
+    match /stock/{id} {
+      allow get: if canGet();
+      allow list: if canUse(resource.data.storeId);
+      allow create: if canUse(newStore());
+      allow update: if canUse(docStore()) && keepsStore();
+      allow delete: if canUse(docStore());
+    }
+    match /stockLogs/{id} {
+      allow get: if canGet();
+      allow list: if canUse(resource.data.storeId);
+      allow create: if canUse(newStore());
+      allow update: if canAdmin(docStore()) && keepsStore();
+      allow delete: if canAdmin(docStore());
+    }
+    // Batches: the real, depletable inventory lots. Never hard-deleted by
+    // the app; deletion is owner-only as a last resort.
+    match /batches/{id} {
+      allow get: if canGet();
+      allow list: if canUse(resource.data.storeId);
+      allow create: if canUse(newStore()) && validBatch();
+      allow update: if canUse(docStore()) && keepsStore() && validBatch();
+      allow delete: if canAdmin(docStore());
+    }
+
+    // ---- STORE: bills ----
+    // Staff create & read; void and edit (void the original + create a
+    // corrected revision, in one transaction) are owner-only and can only
+    // flip the status markers. Bills are never deleted. Items belong to
+    // their bill's store.
+    match /bills/{billId} {
+      function billStore() { return get(/databases/$(database)/documents/bills/$(billId)).data.storeId; }
+      function billStoreAfter() { return getAfter(/databases/$(database)/documents/bills/$(billId)).data.storeId; }
+      allow get: if canGet();
+      allow list: if canUse(resource.data.storeId);
+      allow create: if canUse(newStore()) && request.resource.data.status == 'final';
+      allow update: if canAdmin(docStore()) && onlyStatusChange('replacedByBillId');
+      allow delete: if false;
+      match /billItems/{itemId} {
+        allow read: if canUse(billStore());
+        allow create: if canUse(billStoreAfter()) && newStore() == billStoreAfter();
+        allow update, delete: if false;
+      }
+    }
+
+    // ---- STORE: purchases (same lifecycle as bills) ----
+    match /purchases/{purchaseId} {
+      function purchaseStore() { return get(/databases/$(database)/documents/purchases/$(purchaseId)).data.storeId; }
+      function purchaseStoreAfter() { return getAfter(/databases/$(database)/documents/purchases/$(purchaseId)).data.storeId; }
+      allow get: if canGet();
+      allow list: if canUse(resource.data.storeId);
+      allow create: if canUse(newStore()) && request.resource.data.status == 'final';
+      allow update: if canAdmin(docStore()) && onlyStatusChange('replacedByPurchaseId');
+      allow delete: if false;
+      match /purchaseItems/{itemId} {
+        allow read: if canUse(purchaseStore());
+        allow create: if canUse(purchaseStoreAfter()) && newStore() == purchaseStoreAfter();
+        allow update, delete: if false;
+      }
+    }
+
+    // ---- STORE: draft bills ----
+    // Saved work only — no stock, payment or khata effect. Every save must
+    // carry the next version number, so a phone holding an older copy
+    // cannot overwrite newer changes. Deleted when finalized (inside the
+    // sale transaction) or by hand.
     match /draftBills/{draftId} {
       function validDraft() {
         let d = request.resource.data;
         return d.status == 'draft' && d.number is int && d.version is int
           && d.lines is list && d.payments is list;
       }
-      allow read: if isStaff();
-      allow create: if isStaff() && validDraft() && request.resource.data.version == 1;
-      allow update: if isStaff() && validDraft()
+      allow get: if canGet();
+      allow list: if canUse(resource.data.storeId);
+      allow create: if canUse(newStore()) && validDraft()
+        && request.resource.data.version == 1;
+      allow update: if canUse(docStore()) && keepsStore() && validDraft()
         && request.resource.data.version == resource.data.version + 1
         && request.resource.data.number == resource.data.number;
-      allow delete: if isStaff();
+      allow delete: if canUse(docStore());
     }
 
-    // Customers / khata: staff manage.
+    // ---- STORE: customers / khata ----
     match /customers/{cid} {
-      allow read, write: if isStaff();
-      match /ledgerEntries/{eid} { allow read, create: if isStaff(); allow update, delete: if isAdmin(); }
+      function custStore() { return get(/databases/$(database)/documents/customers/$(cid)).data.storeId; }
+      function custStoreAfter() { return getAfter(/databases/$(database)/documents/customers/$(cid)).data.storeId; }
+      allow get: if canGet();
+      allow list: if canUse(resource.data.storeId);
+      allow create: if canUse(newStore());
+      allow update: if canUse(docStore()) && keepsStore();
+      allow delete: if canUse(docStore());
+      match /ledgerEntries/{eid} {
+        allow read: if canUse(custStore());
+        allow create: if canUse(custStoreAfter()) && newStore() == custStoreAfter();
+        allow update, delete: if canAdmin(custStore());
+      }
     }
 
-    // The first admin staff record is provisioned through the Firebase Console
-    // or Admin SDK; clients cannot create or elevate staff records.
-    match /staff/{id} {
-      allow read: if isStaff();
-      allow create: if isAdmin();
-      // An administrator may manage other staff, but cannot accidentally
-      // demote/deactivate their own account through the client.
-      allow update: if isAdmin() && (id != request.auth.uid ||
-        (request.resource.data.role == resource.data.role &&
-         request.resource.data.active == resource.data.active));
-      allow delete: if false;
+    // ---- STORE: audit trail (append-only) ----
+    // Anyone working in a store records their own actions; the store's
+    // owner (and a super admin) reads them. Never edited or deleted.
+    match /auditLogs/{id} {
+      allow read: if isSuperAdmin() || isStoreAdmin(resource.data.storeId);
+      allow create: if canUse(newStore())
+        && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
     }
-    match /meta/counters { allow read, write: if isStaff(); }
-    match /meta/settings { allow read: if isStaff(); allow write: if isAdmin(); }
+
+    // ---- PLATFORM (super admin layer) ----
+
+    // Global settings: `general` (app name, support contacts) is readable by
+    // every active user; everything else (switches, plan rules, message
+    // templates, provider settings) only by a super admin. Only a super
+    // admin writes. No API secrets are ever stored here.
+    match /global_settings/{doc} {
+      allow read: if isSuperAdmin() || (doc == 'general' && isActiveUser());
+      allow write: if isSuperAdmin();
+    }
+
+    // Subscription plans and announcements: super admin only
+    // (announcements reach stores as notifications). NB: `announcements`
+    // (no prefix) belongs to another application in this project and stays
+    // denied by the catch-all below.
+    match /plans/{id} {
+      allow read, write: if isSuperAdmin();
+    }
+    match /platformAnnouncements/{id} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    // In-app notifications.
+    //   recipientRole 'super_admin' → only a super admin reads
+    //   recipientRole 'admin'       → that store's admin
+    //   recipientRole 'all'         → every user of that store
+    // A store admin may only create a notice FOR the super admin about
+    // their own store (store/staff changes they made). Reading marks only
+    // the reader's own entry in readBy; nothing else can change.
+    match /notifications/{id} {
+      function readable(d) {
+        return isSuperAdmin()
+          || (d.recipientRole == 'all' && isStoreUser(d.storeId))
+          || (d.recipientRole == 'admin' && isStoreAdmin(d.storeId));
+      }
+      allow get, list: if readable(resource.data);
+      allow create: if isSuperAdmin()
+        || (isStoreAdmin(newStore())
+          && request.resource.data.recipientRole == 'super_admin'
+          && request.resource.data.senderUid == request.auth.uid
+          && request.resource.data.type in ['store_updated', 'staff_added',
+               'staff_disabled', 'staff_activated', 'staff_changed']
+          && request.resource.data.get('readBy', {}).size() == 0);
+      allow update: if readable(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy'])
+        && request.resource.data.readBy.diff(resource.data.get('readBy', {}))
+             .affectedKeys().hasOnly([request.auth.uid]);
+      allow delete: if isSuperAdmin();
+    }
+
+    // ---- legacy single-shop documents (copied into stores/STORE001/meta
+    // by the migration) — kept read-only for a super admin.
+    match /meta/{doc} {
+      allow read: if isSuperAdmin();
+      allow write: if false;
+    }
 
     match /{document=**} { allow read, write: if false; }
   }

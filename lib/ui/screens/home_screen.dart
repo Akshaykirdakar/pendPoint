@@ -17,6 +17,8 @@ import 'party_master_screen.dart';
 import 'product_detail_screen.dart';
 import 'purchase_entry_screen.dart';
 import 'reports_screen.dart';
+import 'notification_screens.dart';
+import 'super_admin_screens.dart';
 import 'returns_screen.dart';
 import '../../utils/lang.dart';
 
@@ -66,10 +68,16 @@ class HomeScreen extends StatelessWidget {
       titleMr: 'नमस्कार 👋',
       titleEn: app.settings.shop,
       actions: [
+        if (app.storeContext != null) const NotificationBell(),
         BarAction('🔔 $alertCount',
             onTap: () => _push(context, const AlertsScreen()))
       ],
       body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Which store this is (and, for a super admin, the way back).
+        if (app.store != null) ...[
+          const StoreBadge(),
+          const SizedBox(height: 12),
+        ],
         // Today's sale in one big number; counts as icons, not words.
         StatTile(
             hero: true,

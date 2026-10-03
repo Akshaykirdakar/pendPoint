@@ -181,7 +181,8 @@ void main() {
     final res = await app.savePurchase(
         supplierId: app.suppliers.first.id,
         lines: _lines(pid),
-        photo: BillPhotoChange.replace(Uint8List.fromList([1, 2, 3]), 'jpg'));
+        photo: BillPhotoChange.replace(
+            Uint8List.fromList([0xFF, 0xD8, 0xFF, 1, 2, 3]), 'jpg'));
     expect(res.ok, isFalse);
     expect(repo.photos, isEmpty);
   });

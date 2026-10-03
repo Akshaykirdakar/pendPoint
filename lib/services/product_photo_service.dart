@@ -5,10 +5,13 @@ import 'package:firebase_storage/firebase_storage.dart';
 /// Firebase Storage boundary for product images. Firestore only ever receives
 /// the resulting download URL.
 class ProductPhotoService {
-  ProductPhotoService({FirebaseStorage? storage})
+  ProductPhotoService({required this.storeId, FirebaseStorage? storage})
       : _storage = storage ?? FirebaseStorage.instance;
 
   final FirebaseStorage _storage;
+
+  /// Photos live under stores/{storeId}/ — a store can only reach its own.
+  final String storeId;
 
   Future<String> upload({
     required String productId,
@@ -19,7 +22,8 @@ class ProductPhotoService {
     final ext = extension.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
     final safeExt =
         const {'jpg', 'jpeg', 'png', 'webp'}.contains(ext) ? ext : 'jpg';
-    final ref = _storage.ref('products/$productId/product_image.$safeExt');
+    final ref =
+        _storage.ref('stores/$storeId/products/$productId/product_image.$safeExt');
     final mime = safeExt == 'jpg' ? 'jpeg' : safeExt;
     final task =
         ref.putData(bytes, SettableMetadata(contentType: 'image/$mime'));

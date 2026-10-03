@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' show max;
 
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
@@ -14,16 +15,33 @@ import '../models/customer.dart';
 import '../models/draft_bill.dart';
 import '../models/enums.dart';
 import '../models/party.dart';
+import '../models/platform.dart';
 import '../models/product.dart';
 import '../models/purchase.dart';
 import '../models/staff.dart';
 import '../models/stock.dart';
 import '../models/stock_log.dart';
+import '../models/store.dart';
 import '../models/supplier.dart';
+import '../services/photo_check.dart';
 import 'cart_line.dart';
+import 'platform_service.dart';
 import 'payment_split.dart';
 import 'purchase_draft.dart';
 import '../utils/lang.dart';
+
+/// Where the signed-in user is after login.
+enum SessionState {
+  none, // signed out / not started
+  checking, // reading the staff profile and store
+  noProfile, // signed in, but no staff record exists for this login
+  disabled, // the staff record is inactive
+  noStore, // a store user with no (existing) store assigned
+  storeInactive, // their store is deactivated
+  superAdmin, // super-admin dashboard (no store open)
+  store, // working inside a store
+  error, // the profile/store could not be read
+}
 
 /// Result of trying to finalize a sale.
 class SaleResult {
@@ -108,6 +126,557 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- multi-store session ----
+  //
+  // After Firebase login the user's protected staff record decides
+  // everything: active or not, role, and (for store users) the one store
+  // they work in. The store comes from that record — never from input.
+
+  SessionState session = SessionState.none;
+
+  /// Changes whenever the signed-in user or the open store goes away
+  /// (sign-out, "All stores", another store opened). Screens opened on top
+  /// belong to the previous session, so the app closes them on a change.
+  int sessionEpoch = 0;
+
+  /// Who is signed in and which store the data is for (null: none).
+  StoreContext? get storeContext => repo.context;
+  String? get storeId => repo.context?.storeId;
+  Store? get store => repo.context?.store;
+  bool get isSuperAdmin => repo.context?.isSuperAdmin ?? false;
+
+  /// Resolves the signed-in user's profile and opens their store (or the
+  /// super-admin dashboard). Never loads store data for a disabled user or
+  /// an inactive store.
+  Future<void> startSession() async {
+    clearSession(notify: false);
+    // A sign-out (or a newer session) while this one is still resolving
+    // bumps the sequence; this one then stops without touching anything.
+    final seq = _bootstrapSeq;
+    session = SessionState.checking;
+    notifyListeners();
+    try {
+      final me = await repo.loadMyProfile();
+      if (seq != _bootstrapSeq) return;
+      final uid = repo.currentUserId;
+      if (me == null || uid == null) {
+        session = SessionState.noProfile;
+      } else if (!me.active) {
+        session = SessionState.disabled;
+      } else if (me.isSuperAdmin) {
+        repo.useContext(StoreContext(uid: uid, role: me.role));
+        session = SessionState.superAdmin;
+        _watchNotifications();
+      } else if (me.storeId == null || me.storeId!.isEmpty) {
+        session = SessionState.noStore;
+      } else {
+        final st = await repo.loadStore(me.storeId!);
+        if (seq != _bootstrapSeq) return;
+        if (st == null) {
+          session = SessionState.noStore;
+        } else if (!st.isActive) {
+          session = SessionState.storeInactive;
+        } else {
+          repo.useContext(StoreContext(
+              uid: uid, role: me.role, storeId: st.id, store: st));
+          session = SessionState.store;
+          _watchOpenStore(st.id);
+          _watchNotifications();
+          notifyListeners();
+          await bootstrap();
+          return;
+        }
+      }
+    } catch (e) {
+      if (seq != _bootstrapSeq) return;
+      bootstrapError = e;
+      session = SessionState.error;
+    }
+    loading = false;
+    notifyListeners();
+  }
+
+  /// Super admin: work inside [st] (their identity stays super admin).
+  Future<void> openStore(Store st) async {
+    final ctx = repo.context;
+    if (ctx == null || !ctx.isSuperAdmin) {
+      throw const StoreContextException('Only a super admin can open a store.');
+    }
+    clearSession(notify: false);
+    repo.useContext(ctx.openStore(st));
+    session = SessionState.store;
+    _watchOpenStore(st.id);
+    _watchNotifications();
+    notifyListeners();
+    await bootstrap();
+  }
+
+  /// This user's in-app notifications (live), newest first.
+  List<AppNotification> notifications = [];
+  StreamSubscription<List<AppNotification>>? _noteWatch;
+  int get unreadNotifications => platform.unreadCount(notifications);
+
+  void _watchNotifications() {
+    _noteWatch?.cancel();
+    final epoch = sessionEpoch;
+    _noteWatch = platform.watchMine().listen((l) {
+      if (epoch != sessionEpoch) return;
+      notifications = l;
+      notifyListeners();
+    }, onError: (Object e) => debugPrint('[pend] notifications: $e'));
+  }
+
+  /// Keeps the open store's details live: a rename / contact / plan change
+  /// shows at once (no restart), and a store user whose store is switched
+  /// off is stopped right away (the rules already refuse its data).
+  StreamSubscription<Store?>? _storeWatch;
+  void _watchOpenStore(String sid) {
+    _storeWatch?.cancel();
+    // Tied to this session (not to data loads, which may be retried).
+    final epoch = sessionEpoch;
+    _storeWatch = repo.platform.watchStore(sid).listen((st) {
+      final ctx = repo.context;
+      if (epoch != sessionEpoch || st == null || ctx == null || ctx.storeId != sid) {
+        return;
+      }
+      repo.useContext(
+          StoreContext(uid: ctx.uid, role: ctx.role, storeId: sid, store: st));
+      if (!st.isActive && !ctx.isSuperAdmin) {
+        clearSession(notify: false);
+        session = SessionState.storeInactive;
+        loading = false;
+      }
+      notifyListeners();
+    }, onError: (Object _) {});
+  }
+
+  /// Super Admin platform: settings, notifications, plans, payments,
+  /// announcements, reminders (see PlatformService).
+  late final PlatformService platform = PlatformService(repo);
+
+  /// A store admin (or a super admin inside the store) edits the store's
+  /// name / contact / owner details. Plan, payment and status are changed
+  /// only from the Super Admin screens.
+  Future<String?> updateMyStore(Store after) async {
+    final before = store;
+    if (before == null) return 'दुकान उघडलेले नाही · No store open';
+    final error = await platform.updateMyStore(before, after);
+    if (error == null) {
+      final ctx = repo.context!;
+      repo.useContext(StoreContext(
+          uid: ctx.uid, role: ctx.role, storeId: before.id, store: after));
+      notifyListeners();
+    }
+    return error;
+  }
+
+  /// Super admin: leave the store and go back to the store list.
+  void closeStore() {
+    final ctx = repo.context;
+    if (ctx == null || !ctx.isSuperAdmin) return;
+    clearSession(notify: false);
+    repo.useContext(StoreContext(uid: ctx.uid, role: ctx.role));
+    session = SessionState.superAdmin;
+    _watchNotifications();
+    loading = false;
+    notifyListeners();
+  }
+
+  /// Forgets everything of the current user and store: data, cart, drafts
+  /// and the store context (sign-out, or before another store loads), so
+  /// nothing of one store can show up in the next.
+  void clearSession({bool notify = true}) {
+    _bootstrapSeq++; // a load still on its way is dropped
+    sessionEpoch++;
+    _storeWatch?.cancel();
+    _storeWatch = null;
+    _noteWatch?.cancel();
+    _noteWatch = null;
+    notifications = [];
+    // The one-time branch/batch set-up checks run again for the next store.
+    _migratedBranches = false;
+    _migratedBatches = false;
+    _resetCart();
+    repo.useContext(null);
+    session = SessionState.none;
+    brands = [];
+    branches = [];
+    suppliers = [];
+    products = [];
+    stock = {};
+    batches = [];
+    logs = [];
+    bills = [];
+    purchases = [];
+    customers = [];
+    staff = [];
+    drafts = [];
+    settings = AppSettings();
+    appLang = settings.lang;
+    activeBranchId = null;
+    loading = true;
+    bootstrapError = null;
+    historyError = null;
+    historyLoading = false;
+    if (notify) notifyListeners();
+  }
+
+  /// Signs out and clears every trace of the store from memory.
+  Future<void> signOut() async {
+    clearSession();
+    await repo.signOut();
+  }
+
+  /// Bill / purchase / draft numbers run per store; the document id gets
+  /// the store code so two stores' "BILL1001" never collide. The original
+  /// store keeps its existing ids.
+  String _docId(String base) {
+    final sid = storeId;
+    return sid == null || sid == legacyStoreId ? base : '${sid}_$base';
+  }
+
+  AuditEntry? _auditEntry(String action, String entityType, String entityId,
+      {String? note}) {
+    final ctx = repo.context;
+    final sid = ctx?.storeId;
+    if (ctx == null || sid == null) return null;
+    return AuditEntry(
+        storeId: sid,
+        userId: repo.currentUserId ?? ctx.uid,
+        role: ctx.role,
+        action: action,
+        entityType: entityType,
+        entityId: entityId,
+        at: DateTime.now(),
+        note: note);
+  }
+
+  // ---- super admin: stores and their users ----
+
+  void _requireSuperAdmin() {
+    if (!isSuperAdmin) {
+      throw const StoreContextException(
+          'Only a super admin can manage stores and their users.');
+    }
+  }
+
+  void _auditStore(String storeId, String action, String entityType,
+      String entityId, {String? note}) {
+    final ctx = repo.context;
+    if (ctx == null) return;
+    unawaited(repo
+        .addAudit(AuditEntry(
+            storeId: storeId,
+            userId: repo.currentUserId ?? ctx.uid,
+            role: ctx.role,
+            action: action,
+            entityType: entityType,
+            entityId: entityId,
+            at: DateTime.now(),
+            note: note))
+        .catchError((_) {}));
+  }
+
+  /// The code for the next new store: `STR` + the next number after the
+  /// stores so far (STORE001, STR002 → STR003). Never one already used.
+  static String storeCodeAfter(Iterable<String> codes) {
+    final used = codes.toSet();
+    var n = used.length;
+    for (final c in used) {
+      final m = RegExp(r'(\d+)$').firstMatch(c);
+      if (m != null) n = max(n, int.parse(m.group(1)!));
+    }
+    String code;
+    do {
+      n++;
+      code = 'STR${n.toString().padLeft(3, '0')}';
+    } while (used.contains(code));
+    return code;
+  }
+
+  /// [storeCodeAfter] for the stores that exist now (super admin only).
+  Future<String> nextStoreCode() async {
+    _requireSuperAdmin();
+    return storeCodeAfter((await repo.listStores()).map((s) => s.id));
+  }
+
+  /// Creates a store (its code is its permanent id) with its own default
+  /// settings and counters — no data is copied from any other store.
+  /// Returns an error message, or null.
+  Future<String?> createStore({
+    required String code,
+    required String name,
+    String legalName = '',
+    String address = '',
+    String city = '',
+    String state = '',
+    String pincode = '',
+    String phone = '',
+    String email = '',
+    String gstNumber = '',
+    String ownerName = '',
+    String ownerEmail = '',
+    String ownerPhone = '',
+    String ownerWhatsApp = '',
+    String notifyChannel = 'whatsApp',
+  }) async {
+    _requireSuperAdmin();
+    final id = code.trim().toUpperCase();
+    if (!Store.codePattern.hasMatch(id)) {
+      return 'दुकान कोड चुकीचा · Store code: 3–20 capital letters, digits or "-"';
+    }
+    if (name.trim().isEmpty) return 'दुकानाचे नाव लिहा · Enter the store name';
+    final now = DateTime.now();
+    // A new store starts on the trial set in General Settings.
+    final g = await platform.settings();
+    final st = Store(
+        id: id,
+        storeName: name.trim(),
+        legalName: legalName.trim(),
+        address: address.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        pincode: pincode.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
+        gstNumber: gstNumber.trim(),
+        createdAt: now,
+        updatedAt: now,
+        createdBy: repo.currentUserId ?? repo.context?.uid,
+        ownerName: ownerName.trim(),
+        ownerEmail: ownerEmail.trim(),
+        ownerPhone: ownerPhone.trim(),
+        ownerWhatsApp: ownerWhatsApp.trim(),
+        notifyChannel: notifyChannel,
+        planStatus: g.trialDays > 0 ? PlanStatus.trial : null,
+        planName: g.trialDays > 0 ? 'Trial' : null,
+        planStartDate: g.trialDays > 0 ? now : null,
+        planExpiryDate:
+            g.trialDays > 0 ? now.add(Duration(days: g.trialDays)) : null,
+        nextPaymentDate:
+            g.trialDays > 0 ? now.add(Duration(days: g.trialDays)) : null);
+    try {
+      if ((await repo.loadStore(id)) != null) {
+        return 'हा दुकान कोड आधीच वापरला आहे · Store code $id is already used';
+      }
+      await repo.createStore(st, AppSettings()..shop = st.storeName);
+    } catch (e) {
+      final text = e.toString();
+      if (text.contains('already')) {
+        return 'हा दुकान कोड आधीच वापरला आहे · Store code $id is already used';
+      }
+      return _saveError(e);
+    }
+    _auditStore(id, 'STORE_CREATED', 'STORE', id);
+    unawaited(platform.storeCreated(st));
+    notifyListeners();
+    return null;
+  }
+
+  /// Edits a store's details or status. The code (id) never changes.
+  Future<String?> updateStore(Store st) async {
+    _requireSuperAdmin();
+    final before = await repo.loadStore(st.id);
+    try {
+      await repo.updateStore(st.copyWith(updatedAt: DateTime.now()));
+    } catch (e) {
+      return _saveError(e);
+    }
+    final action = before != null && before.isActive && !st.isActive
+        ? 'STORE_DISABLED'
+        : before != null && !before.isActive && st.isActive
+            ? 'STORE_ENABLED'
+            : 'STORE_UPDATED';
+    _auditStore(st.id, action, 'STORE', st.id);
+    if (before != null) await platform.storeChanged(before, st);
+    notifyListeners();
+    return null;
+  }
+
+  /// Creates a sign-in for a new store user (STORE_ADMIN or STAFF) and
+  /// links it to [storeId]. Returns an error message, or null.
+  Future<String?> createStoreUser({
+    required String storeId,
+    required String name,
+    required String email,
+    required String password,
+    String phone = '',
+    String role = Roles.storeAdmin,
+    bool active = true,
+  }) async {
+    _requireSuperAdmin();
+    if (role != Roles.storeAdmin && role != Roles.staff) {
+      return 'भूमिका चुकीची · Role must be store admin or staff';
+    }
+    if (name.trim().isEmpty) return 'नाव लिहा · Enter a name';
+    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email.trim())) {
+      return 'ईमेल चुकीचा · Enter a valid email';
+    }
+    if (password.length < 6) {
+      return 'पासवर्ड किमान ६ अक्षरे · Password must be at least 6 characters';
+    }
+    final String uid;
+    try {
+      uid = await repo.createLoginAccount(email.trim(), password);
+      await repo.saveUser(Staff(
+          id: uid,
+          name: name.trim(),
+          email: email.trim(),
+          phone: phone.trim(),
+          role: role,
+          storeId: storeId,
+          active: active));
+    } catch (e) {
+      final text = e.toString();
+      if (text.contains('email-already-in-use')) {
+        return 'हा ईमेल आधीच वापरात आहे · This email already has an account';
+      }
+      return _saveError(e);
+    }
+    _auditStore(storeId, 'STAFF_CREATED', 'STAFF', uid, note: role);
+    unawaited(platform.staffChanged(
+        null,
+        Staff(id: uid, name: name.trim(), role: role, storeId: storeId, active: active),
+        storeId));
+    notifyListeners();
+    return null;
+  }
+
+  /// Changes a store user's name, phone, role or active flag. Their store
+  /// stays the same; nobody is promoted to super admin here.
+  Future<String?> updateStoreUser(Staff user) async {
+    _requireSuperAdmin();
+    if (user.isSuperAdmin || user.storeId == null) {
+      return 'फक्त दुकानाचे वापरकर्ते · Only store users can be edited here';
+    }
+    final before =
+        (await repo.listUsers(storeId: user.storeId)).where((u) => u.id == user.id).firstOrNull;
+    try {
+      await repo.saveUser(user);
+    } catch (e) {
+      return _saveError(e);
+    }
+    _auditStore(
+        user.storeId!,
+        before != null && before.active && !user.active
+            ? 'STAFF_DISABLED'
+            : 'STAFF_UPDATED',
+        'STAFF',
+        user.id);
+    unawaited(platform.staffChanged(before, user, user.storeId!));
+    notifyListeners();
+    return null;
+  }
+
+  // ---- passwords ----
+
+  /// Super admins and store admins may change their own password.
+  bool get canChangeOwnPassword => isSuperAdmin || hasOwnerRights;
+
+  /// Whether this login may set [u]'s password: a super admin for any store
+  /// user; a store admin for staff of their own store. Never one's own
+  /// (that is [changeMyPassword]) and never a super admin's.
+  bool canSetPasswordFor(Staff u) {
+    final me = repo.currentUserId;
+    if (u.id == me || u.isSuperAdmin) return false;
+    if (isSuperAdmin) return true;
+    if (!hasOwnerRights || storeId == null) return false;
+    return u.role == Roles.staff && (u.storeId == null || u.storeId == storeId);
+  }
+
+  static String? _newPasswordProblem(String next, String confirm) {
+    if (next.length < 6) {
+      return 'नवीन पासवर्ड किमान ६ अक्षरे · The new password must be at least 6 characters';
+    }
+    if (next != confirm) {
+      return 'दोन्ही पासवर्ड जुळत नाहीत · The two new passwords do not match';
+    }
+    return null;
+  }
+
+  static String _passwordError(Object e) {
+    final t = e.toString();
+    if (t.contains('wrong-password') || t.contains('invalid-credential')) {
+      return 'सध्याचा पासवर्ड चुकीचा आहे · The current password is wrong';
+    }
+    if (t.contains('weak-password')) {
+      return 'पासवर्ड खूप सोपा आहे · That password is too weak';
+    }
+    if (t.contains('too-many-requests')) {
+      return 'खूप प्रयत्न झाले — थोड्या वेळाने करा · Too many attempts — try again later';
+    }
+    if (t.contains('permission-denied')) {
+      return 'या वापरकर्त्याचा पासवर्ड बदलण्याची परवानगी नाही · You may not change this user\'s password';
+    }
+    if (t.contains('not-found')) {
+      return 'हा वापरकर्ता सापडला नाही · This user was not found';
+    }
+    if (t.contains('unavailable') || t.contains('internal') ||
+        t.contains('network')) {
+      return 'पासवर्ड बदलता आला नाही — इंटरनेट तपासा · Could not change the password — check the connection';
+    }
+    return 'पासवर्ड बदलला नाही · Password not changed — $t';
+  }
+
+  /// Changes the signed-in super admin's / store admin's own password.
+  /// Returns an error message, or null.
+  Future<String?> changeMyPassword(
+      {required String current,
+      required String next,
+      required String confirm}) async {
+    if (!canChangeOwnPassword) {
+      return 'फक्त मालक पासवर्ड बदलू शकतो · Only an admin can change the password here';
+    }
+    if (current.isEmpty) {
+      return 'सध्याचा पासवर्ड टाका · Enter the current password';
+    }
+    final bad = _newPasswordProblem(next, confirm);
+    if (bad != null) return bad;
+    if (next == current) {
+      return 'नवीन पासवर्ड जुन्यापेक्षा वेगळा हवा · The new password must differ from the current one';
+    }
+    try {
+      await repo.changeOwnPassword(current, next);
+    } catch (e) {
+      return _passwordError(e);
+    }
+    final uid = repo.currentUserId;
+    if (uid != null) _auditNow('PASSWORD_CHANGED', 'STAFF', uid);
+    return null;
+  }
+
+  /// Sets [u]'s password (see [canSetPasswordFor]); the server checks the
+  /// same, signs [u] out elsewhere and records it in the audit log.
+  /// Returns an error message, or null.
+  Future<String?> setPasswordFor(Staff u,
+      {required String next, required String confirm}) async {
+    if (!canSetPasswordFor(u)) {
+      return 'या वापरकर्त्याचा पासवर्ड बदलण्याची परवानगी नाही · You may not change this user\'s password';
+    }
+    final bad = _newPasswordProblem(next, confirm);
+    if (bad != null) return bad;
+    try {
+      await repo.setUserPassword(u.id, next);
+    } catch (e) {
+      return _passwordError(e);
+    }
+    return null;
+  }
+
+  /// Records [action] inside [commit] (saved all-or-nothing with it).
+  void _auditIn(StockCommit commit, String action, String entityType,
+      String entityId, {String? note}) {
+    final e = _auditEntry(action, entityType, entityId, note: note);
+    if (e != null) commit.audits.add(e);
+  }
+
+  /// Records [action] on its own (a failed audit write never blocks work).
+  void _auditNow(String action, String entityType, String entityId,
+      {String? note}) {
+    final e = _auditEntry(action, entityType, entityId, note: note);
+    if (e != null) unawaited(repo.addAudit(e).catchError((_) {}));
+  }
+
   // History (bills, customers+ledgers, stock logs) loads separately, in the
   // background, after the core catalogue/stock — see [bootstrap]. Reports/
   // Khata/Returns/History screens watch these to show an inline loading
@@ -145,6 +714,9 @@ class AppState extends ChangeNotifier {
             onTimeout: () => throw StateError(
                 'Timed out loading shop data — check your connection and Firestore rules.'),
           );
+      // Signed out, store closed or another store opened meanwhile: this
+      // store's data must not land in the new session.
+      if (seq != _bootstrapSeq) return;
       brands = core.brands;
       // Retain one backing branch for legacy batch data; branch management is
       // deliberately not exposed in the single-shop app.
@@ -156,14 +728,18 @@ class AppState extends ChangeNotifier {
       settings = core.settings;
       appLang = settings.lang;
       await _migrateBranchesAndProducts();
+      if (seq != _bootstrapSeq) return;
       activeBranchId ??= branches.where((b) => b.active).firstOrNull?.id ??
           branches.firstOrNull?.id;
     } catch (error) {
-      bootstrapError = error;
+      if (seq == _bootstrapSeq) bootstrapError = error;
     } finally {
-      loading = false;
-      notifyListeners();
+      if (seq == _bootstrapSeq) {
+        loading = false;
+        notifyListeners();
+      }
     }
+    if (seq != _bootstrapSeq) return;
     if (bootstrapError != null) return; // core failed — don't load history
     unawaited(_loadHistory(seq));
   }
@@ -256,6 +832,7 @@ class AppState extends ChangeNotifier {
   bool get hasOwnerRights {
     final uid = repo.currentUserId;
     if (uid == null) return true;
+    if (isSuperAdmin) return true;
     return staff.any((s) => s.id == uid && s.isAdmin && s.active);
   }
 
@@ -914,7 +1491,7 @@ class AppState extends ChangeNotifier {
     }
     final now = DateTime.now();
     final commit = StockCommit(now);
-    final billId = 'BILL$number';
+    final billId = _docId('BILL$number');
     final List<BillItem> items;
     try {
       items = _sellLines(commit, _StockSim(this), cart, branchId, billId, null);
@@ -971,6 +1548,13 @@ class AppState extends ChangeNotifier {
               note: 'bill #$number',
               at: now),
           bill.creditAmount));
+    }
+    _auditIn(commit, 'BILL_FINALIZED', 'BILL', bill.id,
+        note: 'bill #$number ${bill.total}');
+    final overridden = cart.where((l) => l.isOverridden).length;
+    if (overridden > 0) {
+      _auditIn(commit, 'PRICE_OVERRIDE', 'BILL', bill.id,
+          note: '$overridden line(s) at a bill-only rate');
     }
     final error = await _commit(commit);
     if (error != null) {
@@ -1113,9 +1697,11 @@ class AppState extends ChangeNotifier {
     try {
       if (link == null) {
         final n = await repo.nextDraftNumber();
-        link = _DraftLink('DRAFT$n', n, 0, now, uid);
+        link = _DraftLink(_docId('DRAFT$n'), n, 0, now, uid);
         draft = build(link, 1);
         await repo.saveDraft(draft);
+        // Once per draft — later autosaves of it are not audited.
+        _auditNow('DRAFT_CREATED', 'DRAFT', draft.id);
       } else {
         draft = build(link, link.version + 1);
         await repo.saveDraft(draft, expectedVersion: link.version);
@@ -1212,6 +1798,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return _saveError(e);
     }
+    _auditNow('DRAFT_DELETED', 'DRAFT', id);
     drafts.removeWhere((d) => d.id == id);
     notifyListeners();
     return null;
@@ -1219,10 +1806,14 @@ class AppState extends ChangeNotifier {
 
   /// Reloads drafts (another phone may have added or finished some).
   Future<void> refreshDrafts() async {
+    final seq = _bootstrapSeq;
     try {
-      drafts = await repo.loadDrafts();
+      final loaded = await repo.loadDrafts();
+      if (seq != _bootstrapSeq) return; // another store/user meanwhile
+      drafts = loaded;
       draftsError = null;
     } catch (e) {
+      if (seq != _bootstrapSeq) return;
       draftsError = e;
       debugPrint('[pend] drafts load error: $e');
     }
@@ -1232,6 +1823,8 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _autosave?.cancel();
+    _storeWatch?.cancel();
+    _noteWatch?.cancel();
     super.dispose();
   }
 
@@ -1389,6 +1982,8 @@ class AppState extends ChangeNotifier {
               at: now),
           bill.creditAmount));
     }
+    _auditIn(commit, 'BILL_CORRECTED', 'BILL', bill.id,
+        note: 'replaces ${orig.id}');
     final error = await _commit(commit);
     if (error != null) {
       notifyListeners();
@@ -1434,6 +2029,7 @@ class AppState extends ChangeNotifier {
               at: now),
           b.dueCollected));
     }
+    _auditIn(commit, 'BILL_VOID', 'BILL', b.id);
     final error = await _commit(commit);
     notifyListeners();
     return error;
@@ -1497,6 +2093,8 @@ class AppState extends ChangeNotifier {
       batchId: item.batchId,
       supplierId: item.supplierId,
     ));
+    _auditIn(commit, 'RETURN_CREATED', 'BILL', bill.id,
+        note: '${item.productId} × $qty');
     final error = await _commit(commit);
     notifyListeners();
     return error;
@@ -1712,7 +2310,7 @@ class AppState extends ChangeNotifier {
     }
     final rev = orig == null ? 0 : orig.revision + 1;
     final rootId = orig?.originalPurchaseId ?? orig?.id;
-    final id = orig == null ? 'PUR$number' : '$rootId-R$rev';
+    final id = orig == null ? _docId('PUR$number') : '$rootId-R$rev';
     final now = DateTime.now();
     final commit = StockCommit(now);
     final sim = _StockSim(this);
@@ -1741,9 +2339,11 @@ class AppState extends ChangeNotifier {
     if (photo.remove) {
       photoUrl = photoPath = null;
     } else if (photo.bytes != null) {
+      final bad = photoProblem(photo.bytes!);
+      if (bad != null) return PurchaseResult.failure(bad);
       try {
         uploaded = await repo.uploadPurchaseBillPhoto(
-            id, photo.bytes!, photo.extension);
+            id, photo.bytes!, photoTypeOf(photo.bytes!)!);
       } catch (_) {
         return const PurchaseResult.failure(
             'बिल फोटो अपलोड झाला नाही — पुन्हा प्रयत्न करा किंवा फोटो काढा · Bill photo upload failed — try again or remove the photo');
@@ -1776,6 +2376,8 @@ class AppState extends ChangeNotifier {
       commit.purchasePatches.add(
           StatusPatch(orig.id, status: BillStatus.voided, replacedById: id));
     }
+    _auditIn(commit, orig == null ? 'PURCHASE_CREATED' : 'PURCHASE_CORRECTED',
+        'PURCHASE', id);
     final error = await _commit(commit);
     notifyListeners();
     if (error != null) {
@@ -1817,6 +2419,7 @@ class AppState extends ChangeNotifier {
     }
     if (sim.firstNegativeBatch() != null) return _alreadySold(sim);
     commit.purchasePatches.add(StatusPatch(p.id, status: BillStatus.voided));
+    _auditIn(commit, 'PURCHASE_VOID', 'PURCHASE', p.id);
     final error = await _commit(commit);
     notifyListeners();
     return error;
@@ -1906,6 +2509,7 @@ class AppState extends ChangeNotifier {
       batchId: target.id,
       supplierId: supplierId,
     ));
+    _auditIn(commit, 'STOCK_IN', 'BATCH', target.id);
     final error = await _commit(commit);
     notifyListeners();
     if (error != null) throw StateError(error);
@@ -1945,6 +2549,8 @@ class AppState extends ChangeNotifier {
         looseKgDelta: kgDelta,
         note: note,
         at: DateTime.now()));
+    _auditNow('STOCK_ADJUSTED', 'PRODUCT', productId,
+        note: '$bagsDelta bags, $kgDelta kg · $note');
     notifyListeners();
   }
 
@@ -2024,6 +2630,8 @@ class AppState extends ChangeNotifier {
       batchId: dest.id,
       supplierId: source.supplierId,
     ));
+    _auditIn(commit, 'STOCK_TRANSFER', 'BATCH', source.id,
+        note: 'to ${dest.id}');
     final error = await _commit(commit);
     notifyListeners();
     return error;
@@ -2162,6 +2770,12 @@ class AppState extends ChangeNotifier {
     late final Product saved;
     if (id != null) {
       final idx = products.indexWhere((p) => p.id == id);
+      final old = products[idx];
+      if (old.fullBagPrice != fullBagPrice || old.perKgPrice != perKgPrice) {
+        _auditNow('PRICE_CHANGED', 'PRODUCT', id,
+            note: 'bag ${old.fullBagPrice}→$fullBagPrice, '
+                'kg ${old.perKgPrice}→$perKgPrice');
+      }
       products[idx] = products[idx].copyWith(
         brandId: brandId,
         name: name,
@@ -2296,8 +2910,11 @@ class AppState extends ChangeNotifier {
     final id = _uid('b');
     String? url;
     if (photo.bytes != null) {
+      final bad = photoProblem(photo.bytes!);
+      if (bad != null) return MasterResult.failure(bad);
       try {
-        url = await repo.uploadBrandPhoto(id, photo.bytes!, photo.extension);
+        url = await repo.uploadBrandPhoto(
+            id, photo.bytes!, photoTypeOf(photo.bytes!)!);
       } catch (_) {
         return const MasterResult.failure(_photoFailed);
       }
@@ -2341,8 +2958,11 @@ class AppState extends ChangeNotifier {
     if (photo.remove) {
       url = null;
     } else if (photo.bytes != null) {
+      final bad = photoProblem(photo.bytes!);
+      if (bad != null) return MasterResult.failure(bad);
       try {
-        url = await repo.uploadBrandPhoto(id, photo.bytes!, photo.extension);
+        url = await repo.uploadBrandPhoto(
+            id, photo.bytes!, photoTypeOf(photo.bytes!)!);
       } catch (_) {
         return const MasterResult.failure(_photoFailed);
       }
@@ -2574,6 +3194,14 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> saveStaff(Staff member) async {
+    // Store staff management never creates or promotes a super admin, and
+    // a store user is always saved into the store being worked in.
+    if (member.isSuperAdmin) {
+      throw const StoreContextException(
+          'A super admin can only be set up by a super admin.');
+    }
+    final before = staff.where((s) => s.id == member.id).firstOrNull;
+    if (storeId != null) member = member.copyWith(storeId: storeId);
     final index = staff.indexWhere((s) => s.id == member.id);
     if (index < 0) {
       staff.add(member);
@@ -2582,6 +3210,16 @@ class AppState extends ChangeNotifier {
     }
     try {
       await repo.upsertStaff(member);
+      _auditNow(
+          before == null
+              ? 'STAFF_CREATED'
+              : (before.active && !member.active
+                  ? 'STAFF_DISABLED'
+                  : 'STAFF_UPDATED'),
+          'STAFF',
+          member.id);
+      final sid = storeId;
+      if (sid != null) unawaited(platform.staffChanged(before, member, sid));
       notifyListeners();
     } catch (_) {
       if (index < 0) staff.removeWhere((s) => s.id == member.id);

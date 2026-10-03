@@ -4,6 +4,7 @@ import '../models/customer.dart';
 import '../models/enums.dart';
 import '../models/purchase.dart';
 import '../models/stock_log.dart';
+import '../models/store.dart';
 
 /// A change to one inventory batch, expressed as DELTAS (never absolute
 /// values), so the repository can apply it against the batch's *current*
@@ -104,6 +105,9 @@ class StockCommit {
   final List<Purchase> newPurchases = [];
   final List<StatusPatch> purchasePatches = [];
   final List<LedgerChange> ledger = [];
+
+  /// Audit-trail entries for this operation, written in the same commit.
+  final List<AuditEntry> audits = [];
 
   /// The draft bill this sale finalizes. It is removed in the same commit —
   /// and the commit is rejected if the draft is already gone (finalized or

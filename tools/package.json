@@ -3,5 +3,8 @@
   "type": "module",
   "dependencies": {
     "firebase-admin": "^13.0.0"
+  },
+  "scripts": {
+    "test:migration": "firebase emulators:exec --only firestore,auth --project demo-pend-mig \"node migration_test.mjs\""
   }
 }

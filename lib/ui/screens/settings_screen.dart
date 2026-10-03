@@ -11,7 +11,9 @@ import '../../state/app_state.dart';
 import '../../utils/theme.dart';
 import '../widgets/appearance_settings.dart';
 import '../widgets/common.dart';
+import '../widgets/password_dialogs.dart';
 import '../widgets/pend_scaffold.dart';
+import 'super_admin_screens.dart';
 import '../../utils/lang.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -223,6 +225,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(FirebaseAuth.instance.currentUser?.email ?? 'Signed-in user',
                 style: TextStyle(fontWeight: FontWeight.w700, color: c.ink)),
+            if (app.store != null) ...[
+              const SizedBox(height: 8),
+              const StoreBadge(),
+            ],
+            if (app.store != null && app.hasOwnerRights) ...[
+              const SizedBox(height: 10),
+              BigButton.ghost(tr('🏪 दुकानाची माहिती · Store details'),
+                  key: const ValueKey('settings-store-details'),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) =>
+                          StoreFormScreen(store: app.store, ownStore: true)))),
+            ],
+            if (app.storeId != null && app.hasOwnerRights) ...[
+              const SizedBox(height: 10),
+              BigButton.ghost(tr('📜 ऑडिट लॉग · Audit logs'),
+                  key: const ValueKey('settings-audit'),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => AuditLogScreen(storeId: app.storeId)))),
+            ],
+            if (app.canChangeOwnPassword) ...[
+              const SizedBox(height: 10),
+              BigButton.ghost(tr('🔑 पासवर्ड बदला · Change password'),
+                  key: const ValueKey('settings-password'),
+                  onTap: () => showChangeMyPassword(context)),
+            ],
             const SizedBox(height: 10),
             BigButton.danger(tr('बाहेर पडा · Sign Out'),
                 onTap: () => _signOut(context)),
@@ -396,7 +423,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: const Text('Sign Out'))
               ],
             ));
-    if (yes == true) await FirebaseAuth.instance.signOut();
+    // Clears this store's data, cart and context, then signs out.
+    if (yes == true && context.mounted) await context.read<AppState>().signOut();
   }
 
   Future<void> _showPrinterPicker(BuildContext context, AppState app) async {

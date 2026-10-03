@@ -3,6 +3,9 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+
+import '../../models/store.dart';
+import '../../services/photo_check.dart';
 import '../../services/product_photo_service.dart';
 import '../../state/app_state.dart';
 import '../../utils/marathi_transliteration.dart';
@@ -182,6 +185,11 @@ class _ProductEditScreenState extends State<ProductEditScreen> {
       if (x == null) return;
       final data = await x.readAsBytes();
       if (data.isEmpty) throw StateError('Empty image');
+      final bad = photoProblem(data);
+      if (bad != null) {
+        if (mounted) showToast(context, tr(bad));
+        return;
+      }
       setState(() {
         image = data;
         imageName = x.name;
@@ -222,10 +230,12 @@ class _ProductEditScreenState extends State<ProductEditScreen> {
           lowThreshold: int.tryParse(threshold.text),
           category: category.text.trim().isEmpty ? null : category.text.trim());
       if (image != null) {
-        final url = await ProductPhotoService().upload(
-            productId: p.id,
-            bytes: image!,
-            extension: (imageName ?? 'image.jpg').split('.').last);
+        // Photos go only into the store being worked in — never a default.
+        final sid = a.storeId;
+        if (sid == null) throw const StoreContextException('No store open');
+        final photos = ProductPhotoService(storeId: sid);
+        final url = await photos.upload(
+            productId: p.id, bytes: image!, extension: photoTypeOf(image!)!);
         p = await a.saveProduct(
             id: p.id,
             brandId: p.brandId,
@@ -238,9 +248,12 @@ class _ProductEditScreenState extends State<ProductEditScreen> {
             minPriceFloor: p.minPriceFloor,
             lowThreshold: p.lowStockThresholdBags,
             photoUrl: url);
-        if (oldUrl != null) {
+        // The new photo may have overwritten the old file (same name):
+        // delete the old one only when it is a different file.
+        if (oldUrl != null &&
+            storagePathOfUrl(oldUrl!) != storagePathOfUrl(url)) {
           try {
-            await ProductPhotoService().deleteUrl(oldUrl);
+            await photos.deleteUrl(oldUrl);
           } catch (_) {}
         }
       } else if (remove && oldUrl != null) {
@@ -257,7 +270,10 @@ class _ProductEditScreenState extends State<ProductEditScreen> {
             lowThreshold: p.lowStockThresholdBags,
             photoUrl: null);
         try {
-          await ProductPhotoService().deleteUrl(oldUrl);
+          final sid = a.storeId;
+          if (sid != null) {
+            await ProductPhotoService(storeId: sid).deleteUrl(oldUrl);
+          }
         } catch (_) {}
       }
       if (mounted) {

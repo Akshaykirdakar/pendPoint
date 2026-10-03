@@ -66,7 +66,7 @@ Future<({AppState app, String billId, String purchaseId})> _shop(
       ],
       // tiny payload; the detail screen only shows the button
       photo: BillPhotoChange.replace(
-          Uint8List.fromList(List.filled(16, 7)), 'jpg'))))!;
+          Uint8List.fromList([0xFF, 0xD8, 0xFF, ...List.filled(13, 7)]), 'jpg'))))!;
   expect(res.ok, isTrue, reason: res.error);
   app.addToCart('p1', SaleType.bag, 1);
   app.setCartCustomer('c1');

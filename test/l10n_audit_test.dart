@@ -12,6 +12,7 @@ import 'package:provider/provider.dart';
 import 'package:pend_point/models/app_settings.dart';
 import 'package:pend_point/models/bill.dart';
 import 'package:pend_point/models/enums.dart';
+import 'package:pend_point/models/store.dart';
 import 'package:pend_point/state/app_state.dart';
 import 'package:pend_point/state/purchase_draft.dart';
 import 'package:pend_point/state/report_query.dart';
@@ -48,6 +49,7 @@ import 'package:pend_point/ui/screens/sales_entry_screen.dart';
 import 'package:pend_point/ui/screens/stock_in_screen.dart';
 import 'package:pend_point/ui/screens/stock_transfer_screen.dart';
 import 'package:pend_point/ui/screens/supplier_edit_screen.dart';
+import 'package:pend_point/ui/screens/super_admin_screens.dart';
 import 'package:pend_point/ui/screens/suppliers_screen.dart';
 import 'package:pend_point/ui/widgets/common.dart' show noteLabel;
 import 'package:pend_point/utils/lang.dart';
@@ -57,7 +59,7 @@ import 'test_support.dart';
 
 /// Words that are the same in both languages in this shop (units, brands
 /// of payment/messaging apps, codes).
-const _neutral = ['kg', 'KG', 'UPI', 'QR', 'PIN', 'WhatsApp', 'SMS', 'PDF', 'Excel', 'GSTIN', 'Point', 'ID'];
+const _neutral = ['kg', 'KG', 'UPI', 'QR', 'PIN', 'WhatsApp', 'SMS', 'PDF', 'Excel', 'GSTIN', 'GST', 'Point', 'ID'];
 
 final _dev = RegExp(r'[ऀ-ॿ]');
 final _latinWord = RegExp(r'[A-Za-z]{2,}');
@@ -72,6 +74,8 @@ List<String> _names(AppState app) {
     for (final s in app.suppliers) ...[s.name, s.address, s.email, s.gstin],
     for (final b in app.branches) ...[b.name, b.nameMr, b.address],
     for (final s in app.staff) ...[s.name, s.email ?? ''],
+    // Store names/codes are data too.
+    _store.storeName, _store.id,
     for (final b in app.batches) b.batchNo,
     for (final p in app.purchases) p.supplierBillNo,
     // Notes a person typed are data; notes the app writes are translated
@@ -192,6 +196,12 @@ final Map<String, _Case> _cases = {
   'draft saved dialog': (screen: (_) => const SalesEntryScreen(), open: (_) => find.byKey(const ValueKey('sales-save-draft')), prep: (c) => c.app.addToCart(c.pid, SaleType.bag, 1)),
   'sales entry (previous due added)': (screen: (_) => const SalesEntryScreen(), open: null, prep: (c) { c.app.setCartCustomer('c1'); c.app.addToCart(c.pid, SaleType.bag, 1); c.app.setDueCollect(500); }),
   'bill saved (previous due)': (screen: (c) => BillScreen(billId: c.app.bills.first.id, justSaved: true), open: null, prep: null),
+  'super admin home': (screen: (_) => const SuperAdminHome(), open: null, prep: null),
+  'store form (new)': (screen: (_) => const StoreFormScreen(), open: null, prep: null),
+  'store form (edit)': (screen: (_) => StoreFormScreen(store: _store), open: null, prep: null),
+  'store users': (screen: (_) => StoreUsersScreen(store: _store), open: null, prep: null),
+  'store users add': (screen: (_) => StoreUsersScreen(store: _store), open: (_) => find.byKey(const ValueKey('sa-add-user')), prep: null),
+  'audit logs': (screen: (_) => const AuditLogScreen(), open: null, prep: null),
   'payment reminder': (screen: (_) => const PaymentReminderScreen(), open: (_) => find.byKey(const ValueKey('remind-select-all')), prep: null),
   'customer (reminder buttons)': (screen: (_) => const CustomerScreen(customerId: 'c1'), open: null, prep: null),
   'draft bills': (screen: (_) => const DraftBillsScreen(), open: null, prep: _draft),
@@ -200,6 +210,9 @@ final Map<String, _Case> _cases = {
   'bills list (drafts)': (screen: (_) => const ReturnsScreen(), open: null, prep: _draft),
   'checkout (draft)': (screen: (_) => const CheckoutScreen(), open: null, prep: _draft),
 };
+
+final _store = Store(
+    id: 'STR002', storeName: 'Satara', createdAt: DateTime(2026), updatedAt: DateTime(2026));
 
 /// A saved draft (party, product) left open on screen.
 void _draft(_Ctx c) {

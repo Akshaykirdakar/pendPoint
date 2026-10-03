@@ -1,4 +1,3 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/staff.dart';
@@ -6,12 +5,13 @@ import '../../state/app_state.dart';
 import '../../utils/theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pend_scaffold.dart';
+import '../widgets/password_dialogs.dart';
 import '../../utils/lang.dart';
 
 class StaffScreen extends StatelessWidget {
   const StaffScreen({super.key});
-  bool _isAdmin(AppState app) => app.staff.any((s) =>
-      s.id == FirebaseAuth.instance.currentUser?.uid && s.isAdmin && s.active);
+  /// The store's admin (or a super admin working in the store).
+  bool _isAdmin(AppState app) => app.hasOwnerRights;
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
@@ -39,9 +39,18 @@ class StaffScreen extends StatelessWidget {
                           '${s.email ?? s.id}\n${s.isAdmin ? L('मालक', 'Admin') : L('कर्मचारी', 'Staff')} · ${s.active ? L('सक्रिय', 'Active') : L('निष्क्रिय', 'Inactive')} · ${s.canOverride ? '${L('सूट', 'Override')} ${s.maxDiscountPct.round()}%' : L('सूट नाही', 'No override')}'),
                       isThreeLine: true,
                       trailing: admin
-                          ? IconButton(
-                              icon: const Icon(Icons.edit_outlined),
-                              onPressed: () => _edit(context, s))
+                          ? Row(mainAxisSize: MainAxisSize.min, children: [
+                              if (app.canSetPasswordFor(s))
+                                IconButton(
+                                    key: ValueKey('staff-password-${s.id}'),
+                                    tooltip: tr('पासवर्ड बदला · Set password'),
+                                    icon: const Icon(Icons.key_outlined),
+                                    onPressed: () =>
+                                        showSetPassword(context, s)),
+                              IconButton(
+                                  icon: const Icon(Icons.edit_outlined),
+                                  onPressed: () => _edit(context, s)),
+                            ])
                           : null))
           ]),
         ]));

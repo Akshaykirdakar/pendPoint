@@ -7,7 +7,7 @@ import {
   initializeTestEnvironment, assertFails, assertSucceeds,
 } from '@firebase/rules-unit-testing';
 import {
-  doc, getDoc, getDocs, setDoc, deleteDoc, collection, runTransaction,
+  doc, getDoc, getDocs, setDoc, deleteDoc, collection, runTransaction, query, where,
 } from 'firebase/firestore';
 
 const RULES = process.env.RULES_FILE ?? new URL('../../firestore.rules', import.meta.url);
@@ -17,6 +17,7 @@ const env = await initializeTestEnvironment({
 });
 
 const now = () => new Date().toISOString();
+const S = 'STORE001';
 let pass = 0;
 async function check(name, fn) {
   try { await fn(); pass++; console.log(`PASS ${name}`); }
@@ -27,9 +28,10 @@ async function seed() {
   await env.clearFirestore();
   await env.withSecurityRulesDisabled(async (ctx) => {
     const db = ctx.firestore();
-    await setDoc(doc(db, 'staff/owner1'), { name: 'Owner', role: 'admin', active: true });
-    await setDoc(doc(db, 'staff/staff1'), { name: 'Counter', role: 'staff', active: true });
-    await setDoc(doc(db, 'meta/counters'), { bill: 1000, purchase: 0, draft: 1000 });
+    await setDoc(doc(db, 'stores/STORE001'), { storeCode: 'STORE001', storeName: 'Main', status: 'ACTIVE' });
+    await setDoc(doc(db, 'staff/owner1'), { name: 'Owner', role: 'admin', active: true, storeId: S });
+    await setDoc(doc(db, 'staff/staff1'), { name: 'Counter', role: 'staff', active: true, storeId: S });
+    await setDoc(doc(db, 'stores/STORE001/meta/counters'), { bill: 1000, purchase: 0, draft: 1000 });
   });
 }
 
@@ -42,14 +44,14 @@ function draftDoc({ number = 1001, version = 1, status = 'draft' } = {}) {
     lines: [{ productId: 'p1', saleType: 'bag', qty: 5, catalogRate: 42, rate: 40 }],
     payments: [{ mode: 'cash', amount: 195 }, { mode: 'credit', amount: 5 }],
     totalAmount: 200, createdAt: now(), updatedAt: now(),
-    createdBy: 'staff1', updatedBy: 'staff1', version,
+    createdBy: 'staff1', updatedBy: 'staff1', version, storeId: S,
   };
 }
 
 // FirestoreRepository.nextDraftNumber()
 function nextDraftNumber(db) {
   return runTransaction(db, async (tx) => {
-    const ref = doc(db, 'meta/counters');
+    const ref = doc(db, 'stores/STORE001/meta/counters');
     const snap = await tx.get(ref);
     const next = (snap.data()?.draft ?? 1000) + 1;
     tx.set(ref, { draft: next }, { merge: true });
@@ -79,9 +81,9 @@ function finalizeDraft(db, id, billId) {
     tx.set(bref, {
       billNumber: 1001, customerId: 'c1', customerName: 'ABC Traders', subtotal: 200,
       discountTotal: 10, totalAmount: 200, payments: [], status: 'final', createdAt: now(),
-      createdBy: 'staff1', branchId: 'br1', revision: 0,
+      createdBy: 'staff1', branchId: 'br1', revision: 0, storeId: S,
     });
-    tx.set(doc(db, `bills/${billId}/billItems/0`), { productId: 'p1', rate: 40 });
+    tx.set(doc(db, `bills/${billId}/billItems/0`), { productId: 'p1', rate: 40, storeId: S });
     tx.delete(ref);
   });
 }
@@ -90,7 +92,7 @@ await seed();
 
 await check('signed out: cannot read or create drafts', async () => {
   const db = as(null);
-  await assertFails(getDocs(collection(db, 'draftBills')));
+  await assertFails(getDocs(query(collection(db, 'draftBills'), where('storeId', '==', S))));
   await assertFails(setDoc(doc(db, 'draftBills/DRAFT1'), draftDoc()));
 });
 
@@ -99,7 +101,7 @@ await check('staff: next draft number + create draft v1', async () => {
   const n = await assertSucceeds(nextDraftNumber(db));
   if (n !== 1001) throw new Error(`expected 1001, got ${n}`);
   await assertSucceeds(saveDraft(db, 'DRAFT1001', draftDoc({ number: n })));
-  await assertSucceeds(getDocs(collection(db, 'draftBills')));
+  await assertSucceeds(getDocs(query(collection(db, 'draftBills'), where('storeId', '==', S))));
 });
 
 await check('create must start at version 1 and be a draft', async () => {

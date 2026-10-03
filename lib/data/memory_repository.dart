@@ -12,7 +12,9 @@ import '../models/product.dart';
 import '../models/stock.dart';
 import '../models/stock_log.dart';
 import '../models/staff.dart';
+import '../models/store.dart';
 import '../models/supplier.dart';
+import 'platform_repository.dart';
 import 'repository.dart';
 import 'stock_commit.dart';
 import 'seed_data.dart';
@@ -156,6 +158,93 @@ class InMemoryRepository implements Repository {
 
   @override
   String? get currentUserId => null;
+
+  // ---- multi-store (kept in memory, like everything else here) ----
+  StoreContext? _context;
+  @override
+  StoreContext? get context => _context;
+  @override
+  void useContext(StoreContext? context) => _context = context;
+
+  final Map<String, Store> stores = {};
+
+  @override
+  late final InMemoryPlatformRepository platform =
+      InMemoryPlatformRepository(stores);
+  final Map<String, Staff> users = {};
+  final List<AuditEntry> audit = [];
+
+  /// The signed-in profile — tests set it; the demo has no login.
+  Staff? profile;
+
+  @override
+  Future<void> signOut() async {}
+
+  @override
+  Future<Staff?> loadMyProfile() async => profile;
+
+  @override
+  Future<Store?> loadStore(String storeId) async => stores[storeId];
+
+  @override
+  Future<List<Store>> listStores() async =>
+      stores.values.toList()..sort((a, b) => a.id.compareTo(b.id));
+
+  @override
+  Future<void> createStore(Store store, AppSettings settings) async {
+    if (stores.containsKey(store.id)) throw StateError('Store code ${store.id} already exists');
+    stores[store.id] = store;
+    platform.storesChanged();
+  }
+
+  @override
+  Future<void> updateStore(Store store) async {
+    if (!stores.containsKey(store.id)) throw StateError('No store ${store.id}');
+    stores[store.id] = store;
+    platform.storesChanged();
+  }
+
+  @override
+  Future<List<Staff>> listUsers({String? storeId}) async => [
+        for (final u in users.values)
+          if (storeId == null || u.storeId == storeId) u
+      ];
+
+  @override
+  Future<void> saveUser(Staff user) async => users[user.id] = user;
+
+  int _accounts = 0;
+  @override
+  Future<String> createLoginAccount(String email, String password) async =>
+      'uid-${++_accounts}-${email.split('@').first}';
+
+  /// Passwords set in tests: uid → password (the signed-in user is
+  /// [profile]'s id).
+  final Map<String, String> passwords = {};
+
+  @override
+  Future<void> changeOwnPassword(String current, String next) async {
+    final uid = currentUserId ?? 'me';
+    final now = passwords[uid];
+    if (now != null && now != current) {
+      throw StateError('auth/invalid-credential');
+    }
+    passwords[uid] = next;
+  }
+
+  @override
+  Future<void> setUserPassword(String uid, String password) async =>
+      passwords[uid] = password;
+
+  @override
+  Future<void> addAudit(AuditEntry entry) async => audit.add(entry);
+
+  @override
+  Future<List<AuditEntry>> loadAudit({String? storeId, int limit = 200}) async =>
+      [
+        for (final a in audit.reversed)
+          if (storeId == null || a.storeId == storeId) a
+      ].take(limit).toList();
 
   /// Bill photos kept in memory, keyed by storage-style path.
   final Map<String, Uint8List> photos = {};

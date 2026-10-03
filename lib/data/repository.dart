@@ -1,3 +1,4 @@
+import 'platform_repository.dart';
 import 'dart:typed_data';
 
 import '../models/app_settings.dart';
@@ -11,6 +12,7 @@ import '../models/enums.dart';
 import '../models/product.dart';
 import '../models/purchase.dart';
 import '../models/staff.dart';
+import '../models/store.dart';
 import '../models/stock.dart';
 import '../models/stock_log.dart';
 import '../models/supplier.dart';
@@ -104,6 +106,67 @@ abstract class Repository {
   /// The signed-in staff member for an authenticated repository. Local/demo
   /// repositories deliberately have no user, keeping their UI Firebase-free.
   String? get currentUserId => null;
+
+  // ---- multi-store ----
+  //
+  // Every store-owned read is limited to, and every store-owned write is
+  // stamped with, the store in [context] — screens never pass a store id.
+  // Without a store context those operations throw StoreContextException
+  // rather than touch other stores' data.
+
+  /// Who is signed in and which store the data belongs to.
+  StoreContext? get context;
+
+  /// Sets the store context (after login, or when a super admin opens a
+  /// store); null on sign-out.
+  void useContext(StoreContext? context);
+
+  /// Signs the user out of the backend (nothing to do for local data).
+  Future<void> signOut();
+
+  /// The signed-in user's own staff/{uid} record (null: none exists).
+  Future<Staff?> loadMyProfile();
+
+  /// stores/{storeId}, or null.
+  Future<Store?> loadStore(String storeId);
+
+  // ---- super admin (global) ----
+  Future<List<Store>> listStores();
+
+  /// Creates a new store with its own default settings and counters.
+  /// Fails if the store code is already taken.
+  Future<void> createStore(Store store, AppSettings settings);
+  Future<void> updateStore(Store store);
+
+  /// Staff of [storeId] (all users when null — super admin only).
+  Future<List<Staff>> listUsers({String? storeId});
+
+  /// Creates or updates a user's staff record (their role and store).
+  Future<void> saveUser(Staff user);
+
+  /// Creates a Firebase sign-in for a new store user without signing the
+  /// current (super admin) user out; returns the new uid.
+  Future<String> createLoginAccount(String email, String password);
+
+  /// Super Admin platform data (stores live, settings, plans, payments,
+  /// notifications, announcements).
+  PlatformRepository get platform;
+
+  /// Changes the signed-in user's own password after confirming the
+  /// current one (Firebase asks for a recent sign-in).
+  Future<void> changeOwnPassword(String current, String next);
+
+  /// Sets another user's password. Done by the `setUserPassword` Cloud
+  /// Function, which checks the caller may do it (super admin: any store
+  /// user; store admin: staff of their own store) and signs that user out
+  /// of their other devices.
+  Future<void> setUserPassword(String uid, String password);
+
+  /// Appends to the store-aware audit trail.
+  Future<void> addAudit(AuditEntry entry);
+
+  /// Recent audit entries — one store's, or all stores' when null.
+  Future<List<AuditEntry>> loadAudit({String? storeId, int limit = 200});
 
   /// Catalogue + stock + settings + staff — everything needed to open the
   /// counter screen. Load this first and show the UI as soon as it resolves.

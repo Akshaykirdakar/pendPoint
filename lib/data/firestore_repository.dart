@@ -28,16 +28,27 @@
 //                                            (customers = sales parties,
 //                                             suppliers = purchase parties;
 //                                             a "both" party shares one id)
-//   staff/{staffId}
-//   meta/counters  { bill: <int>, purchase: <int> }
-//   meta/settings
+//   staff/{uid}                             (role + storeId — GLOBAL)
+//   stores/{storeId}                         (store master — GLOBAL)
+//   stores/{storeId}/meta/counters  { bill, purchase, draft }
+//   stores/{storeId}/meta/settings
+//   draftBills/{draftId}
+//   auditLogs/{logId}
+//
+// Multi-store: every store-owned document above carries `storeId`. All
+// reads here filter by, and all writes stamp, the store of [context] —
+// callers never pass a store id, and without a context these methods
+// throw StoreContextException instead of touching other stores' data.
+// firestore.rules enforce the same boundary server-side.
 //
 // Offline: enable Firestore persistence (Settings(persistenceEnabled: true))
 // so the counter keeps working without internet, syncing when back online.
 // ---------------------------------------------------------------------------
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 
@@ -52,18 +63,70 @@ import '../models/enums.dart';
 import '../models/product.dart';
 import '../models/purchase.dart';
 import '../models/staff.dart';
+import '../models/store.dart';
 import '../models/stock.dart';
 import '../models/stock_log.dart';
 import '../models/supplier.dart';
 import 'repository.dart';
+import 'platform_repository.dart';
 import 'stock_commit.dart';
 
 class FirestoreRepository implements Repository {
   final FirebaseFirestore db;
   final FirebaseStorage? _storage;
-  FirestoreRepository({FirebaseFirestore? firestore, FirebaseStorage? storage})
+  final String? Function()? _uidOverride;
+  FirestoreRepository(
+      {FirebaseFirestore? firestore,
+      FirebaseStorage? storage,
+      String? Function()? currentUid})
       : db = firestore ?? FirebaseFirestore.instance,
-        _storage = storage;
+        _storage = storage,
+        _uidOverride = currentUid;
+
+  @override
+  late final PlatformRepository platform = FirestorePlatformRepository(db);
+
+  // ---- store context ----
+  StoreContext? _context;
+
+  @override
+  StoreContext? get context => _context;
+
+  @override
+  void useContext(StoreContext? context) => _context = context;
+
+  /// The current store, or StoreContextException — never "all stores".
+  String get _sid =>
+      (_context ?? (throw const StoreContextException())).requireStoreId;
+
+  /// [collection] limited to the current store.
+  Query<Map<String, dynamic>> _scoped(String collection) =>
+      db.collection(collection).where('storeId', isEqualTo: _sid);
+
+  /// [data] owned by the current store (whatever storeId it may carry).
+  Map<String, dynamic> _stamp(Map<String, dynamic> data) =>
+      {...data, 'storeId': _sid};
+
+  /// stores/{storeId}/meta/[doc] — counters and settings per store.
+  DocumentReference<Map<String, dynamic>> _meta(String doc) =>
+      db.doc('stores/$_sid/meta/$doc');
+
+  /// Before a delete: the document must be this store's (a missing one is
+  /// fine — nothing to delete). Rules enforce the same on the server.
+  Future<void> _assertOwned(DocumentReference<Map<String, dynamic>> ref) async {
+    final snap = await ref.get();
+    if (snap.exists && snap.data()?['storeId'] != _sid) {
+      throw StoreContextException('${ref.path} belongs to another store');
+    }
+  }
+
+  /// A document read inside a transaction must belong to this store.
+  void _ownedHere(DocumentSnapshot<Map<String, dynamic>> snap, String what) {
+    final owner = snap.data()?['storeId'];
+    if (snap.exists && owner != _sid) {
+      throw StockCommitException('$what ${snap.id} belongs to another store');
+    }
+  }
 
   FirebaseStorage get storage => _storage ?? FirebaseStorage.instance;
 
@@ -71,7 +134,7 @@ class FirestoreRepository implements Repository {
   @override
   Future<StoredPhoto> uploadPurchaseBillPhoto(
       String purchaseId, Uint8List bytes, String extension) async {
-    final path = purchaseBillPhotoPath(purchaseId, extension);
+    final path = 'stores/$_sid/${purchaseBillPhotoPath(purchaseId, extension)}';
     final ext = path.split('.').last;
     final ref = storage.ref(path);
     await ref.putData(bytes,
@@ -99,42 +162,43 @@ class FirestoreRepository implements Repository {
   }
 
   @override
-  String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
+  String? get currentUserId =>
+      _uidOverride != null ? _uidOverride() : FirebaseAuth.instance.currentUser?.uid;
 
   /// Catalogue + stock + settings + staff — enough to open the counter
   /// screen. See [Repository.loadCore].
   @override
   Future<CoreSnapshot> loadCore() async {
     debugPrint('[pend] fs: reading brands...');
-    final brandsSnap = await db.collection('brands').get();
+    final brandsSnap = await _scoped('brands').get();
     debugPrint('[pend] fs: brands = ${brandsSnap.size}');
 
     debugPrint('[pend] fs: reading branches...');
-    final branchesSnap = await db.collection('branches').get();
+    final branchesSnap = await _scoped('branches').get();
     debugPrint('[pend] fs: branches = ${branchesSnap.size}');
 
     debugPrint('[pend] fs: reading suppliers...');
-    final suppliersSnap = await db.collection('suppliers').get();
+    final suppliersSnap = await _scoped('suppliers').get();
     debugPrint('[pend] fs: suppliers = ${suppliersSnap.size}');
 
     debugPrint('[pend] fs: reading products...');
-    final productsSnap = await db.collection('products').get();
+    final productsSnap = await _scoped('products').get();
     debugPrint('[pend] fs: products = ${productsSnap.size}');
 
     debugPrint('[pend] fs: reading stock...');
-    final stockSnap = await db.collection('stock').get();
+    final stockSnap = await _scoped('stock').get();
     debugPrint('[pend] fs: stock = ${stockSnap.size}');
 
     debugPrint('[pend] fs: reading staff...');
-    final staffSnap = await db.collection('staff').get();
+    final staffSnap = await _scoped('staff').get();
     debugPrint('[pend] fs: staff = ${staffSnap.size}');
 
     debugPrint('[pend] fs: reading meta/counters...');
-    final counters = await db.doc('meta/counters').get();
+    final counters = await _meta('counters').get();
     debugPrint('[pend] fs: meta/counters = ${counters.exists ? 1 : 0}');
 
     debugPrint('[pend] fs: reading meta/settings...');
-    final settingsDoc = await db.doc('meta/settings').get();
+    final settingsDoc = await _meta('settings').get();
     debugPrint('[pend] fs: meta/settings = ${settingsDoc.exists ? 1 : 0}');
 
     final brands =
@@ -175,6 +239,7 @@ class FirestoreRepository implements Repository {
     debugPrint('[pend] fs: reading stockLogs...');
     final logsSnap = await db
         .collection('stockLogs')
+        .where('storeId', isEqualTo: _sid)
         .orderBy('createdAt', descending: true)
         .limit(500)
         .get();
@@ -183,22 +248,24 @@ class FirestoreRepository implements Repository {
     debugPrint('[pend] fs: reading bills...');
     final billsSnap = await db
         .collection('bills')
+        .where('storeId', isEqualTo: _sid)
         .orderBy('createdAt', descending: true)
         .limit(500)
         .get();
     debugPrint('[pend] fs: bills = ${billsSnap.size}');
 
     debugPrint('[pend] fs: reading customers...');
-    final customersSnap = await db.collection('customers').get();
+    final customersSnap = await _scoped('customers').get();
     debugPrint('[pend] fs: customers = ${customersSnap.size}');
 
     debugPrint('[pend] fs: reading batches...');
-    final batchesSnap = await db.collection('batches').get();
+    final batchesSnap = await _scoped('batches').get();
     debugPrint('[pend] fs: batches = ${batchesSnap.size}');
 
     debugPrint('[pend] fs: reading purchases...');
     final purchasesSnap = await db
         .collection('purchases')
+        .where('storeId', isEqualTo: _sid)
         .orderBy('createdAt', descending: true)
         .limit(500)
         .get();
@@ -250,7 +317,7 @@ class FirestoreRepository implements Repository {
 
   @override
   Future<int> nextBillNumber() async {
-    final ref = db.doc('meta/counters');
+    final ref = _meta('counters');
     return db.runTransaction<int>((tx) async {
       final snap = await tx.get(ref);
       final current = (snap.data()?['bill'] ?? 1000) as int;
@@ -262,7 +329,7 @@ class FirestoreRepository implements Repository {
 
   @override
   Future<int> nextPurchaseNumber() async {
-    final ref = db.doc('meta/counters');
+    final ref = _meta('counters');
     return db.runTransaction<int>((tx) async {
       final snap = await tx.get(ref);
       final next = ((snap.data()?['purchase'] ?? 0) as int) + 1;
@@ -274,13 +341,13 @@ class FirestoreRepository implements Repository {
   // ---- draft bills: draftBills/{draftId}, version-checked on every save ----
   @override
   Future<List<DraftBill>> loadDrafts() async {
-    final snap = await db.collection('draftBills').get();
+    final snap = await _scoped('draftBills').get();
     return [for (final d in snap.docs) DraftBill.fromMap(d.id, d.data())];
   }
 
   @override
   Future<int> nextDraftNumber() async {
-    final ref = db.doc('meta/counters');
+    final ref = _meta('counters');
     return db.runTransaction<int>((tx) async {
       final snap = await tx.get(ref);
       final next = ((snap.data()?['draft'] ?? 1000) as int) + 1;
@@ -301,13 +368,16 @@ class FirestoreRepository implements Repository {
       } else if ((snap.data()?['version'] ?? 1) != expectedVersion) {
         throw const DraftConflictException(missing: false);
       }
-      tx.set(ref, draft.toMap());
+      tx.set(ref, _stamp(draft.toMap()));
     });
   }
 
   @override
-  Future<void> deleteDraft(String draftId) =>
-      db.collection('draftBills').doc(draftId).delete();
+  Future<void> deleteDraft(String draftId) async {
+    final ref = db.collection('draftBills').doc(draftId);
+    await _assertOwned(ref);
+    await ref.delete();
+  }
 
   /// See [Repository.commitStock]. One Firestore transaction: every read
   /// happens first (batches, legacy stock, customers, bills/purchases being
@@ -350,6 +420,7 @@ class FirestoreRepository implements Repository {
       if (draftRef != null) {
         final draft = await tx.get(draftRef);
         if (!draft.exists) throw const StockCommitException(draftGoneMessage);
+        _ownedHere(draft, 'Draft');
         if (c.finalizedDraftVersion != null &&
             (draft.data()?['version'] ?? 1) != c.finalizedDraftVersion) {
           throw const StockCommitException(draftChangedMessage);
@@ -373,6 +444,7 @@ class FirestoreRepository implements Repository {
           });
         } else {
           final snap = batchSnaps[d.batchId]!;
+          _ownedHere(snap, 'Batch');
           if (!snap.exists) {
             throw StockCommitException(
                 'बॅच सापडली नाही · Batch ${d.batchId} no longer exists');
@@ -387,6 +459,7 @@ class FirestoreRepository implements Repository {
         batchWrites[d.batchId] = current.toMap();
       }
       c.legacyStock.forEach((pid, d) {
+        _ownedHere(legacySnaps[pid]!, 'Stock');
         final m = legacySnaps[pid]!.data() ?? const <String, dynamic>{};
         final bags = ((m['bagsRemaining'] ?? 0) as int) + d.bags;
         final kg = (m['looseKgRemaining'] ?? 0).toDouble() + d.looseKg;
@@ -401,6 +474,7 @@ class FirestoreRepository implements Repository {
         if (data == null) {
           throw StockCommitException('$what ${p.id} not found');
         }
+        _ownedHere(s, what);
         if (BillStatusX.fromId(data['status'] as String?) != p.expected ||
             data['replacedByBillId'] != null ||
             data['replacedByPurchaseId'] != null) {
@@ -416,26 +490,33 @@ class FirestoreRepository implements Repository {
         checkStatus(p, purchaseSnaps[p.id]!, 'खरेदी · Purchase');
       }
 
-      // ---- writes ----
+      for (final s in customerSnaps.values) {
+        _ownedHere(s, 'Customer');
+      }
+
+      // ---- writes (every document stamped with this store) ----
       batchWrites.forEach(
-          (id, data) => tx.set(db.collection('batches').doc(id), data));
+          (id, data) => tx.set(db.collection('batches').doc(id), _stamp(data)));
       c.rollupDeltas.forEach((pid, d) {
         tx.set(
             db.collection('stock').doc(pid),
             {
+              'storeId': _sid,
+              'productId': pid,
               'bagsRemaining': FieldValue.increment(d.$1),
               'looseKgRemaining': FieldValue.increment(d.$2),
             },
             SetOptions(merge: true));
       });
       for (final l in c.logs) {
-        tx.set(db.collection('stockLogs').doc(l.id), l.toMap());
+        tx.set(db.collection('stockLogs').doc(l.id), _stamp(l.toMap()));
       }
       for (final b in c.newBills) {
         final ref = db.collection('bills').doc(b.id);
-        tx.set(ref, b.toMap());
+        tx.set(ref, _stamp(b.toMap()));
         for (var i = 0; i < b.items.length; i++) {
-          tx.set(ref.collection('billItems').doc('$i'), b.items[i].toMap());
+          tx.set(ref.collection('billItems').doc('$i'),
+              _stamp(b.items[i].toMap()));
         }
       }
       for (final p in c.billPatches) {
@@ -447,11 +528,11 @@ class FirestoreRepository implements Repository {
       }
       for (final p in c.newPurchases) {
         final ref = db.collection('purchases').doc(p.id);
-        tx.set(ref, p.toMap());
+        tx.set(ref, _stamp(p.toMap()));
         for (var i = 0; i < p.items.length; i++) {
           tx.set(
               ref.collection('purchaseItems').doc(i.toString().padLeft(3, '0')),
-              p.items[i].toMap());
+              _stamp(p.items[i].toMap()));
         }
       }
       for (final p in c.purchasePatches) {
@@ -467,13 +548,16 @@ class FirestoreRepository implements Repository {
       };
       for (final l in c.ledger) {
         final ref = db.collection('customers').doc(l.customerId);
-        tx.set(ref.collection('ledgerEntries').doc(), l.entry.toMap());
+        tx.set(ref.collection('ledgerEntries').doc(), _stamp(l.entry.toMap()));
         final next = outstanding[l.customerId]! + l.outstandingDelta;
         outstanding[l.customerId] = next < 0 ? 0 : next;
       }
       outstanding.forEach((id, v) => tx.update(
           db.collection('customers').doc(id), {'outstandingBalance': v}));
       if (draftRef != null) tx.delete(draftRef);
+      for (final a in c.audits) {
+        tx.set(db.collection('auditLogs').doc(), a.toMap());
+      }
     });
   }
 
@@ -481,11 +565,15 @@ class FirestoreRepository implements Repository {
   Future<void> upsertBrand(Brand brand) => db
       .collection('brands')
       .doc(brand.id)
-      .set(brand.toMap(), SetOptions(merge: true));
+      .set(_stamp(brand.toMap()), SetOptions(merge: true));
 
   @override
   Future<void> deleteBrand(String brandId,
       {List<String> productIds = const []}) async {
+    await _assertOwned(db.collection('brands').doc(brandId));
+    for (final id in productIds) {
+      await _assertOwned(db.collection('products').doc(id));
+    }
     final batch = db.batch();
     for (final id in productIds) {
       batch.delete(db.collection('products').doc(id));
@@ -502,7 +590,7 @@ class FirestoreRepository implements Repository {
     final safe =
         const {'jpg', 'jpeg', 'png', 'webp'}.contains(ext) ? ext : 'jpg';
     final ref = storage.ref(
-        'brands/$brandId/logo_${DateTime.now().millisecondsSinceEpoch}.$safe');
+        'stores/$_sid/brands/$brandId/logo_${DateTime.now().millisecondsSinceEpoch}.$safe');
     await ref.putData(
         bytes,
         SettableMetadata(
@@ -523,21 +611,25 @@ class FirestoreRepository implements Repository {
   Future<void> upsertStaff(Staff staff) => db
       .collection('staff')
       .doc(staff.id)
-      .set(staff.toMap(), SetOptions(merge: true));
+      .set(_stamp(staff.toMap()), SetOptions(merge: true));
 
   @override
   Future<void> upsertProduct(Product product, {Stock? initialStock}) async {
     await db
         .collection('products')
         .doc(product.id)
-        .set(product.toMap(), SetOptions(merge: true));
+        .set(_stamp(product.toMap()), SetOptions(merge: true));
     if (initialStock != null) {
-      await db.collection('stock').doc(product.id).set(initialStock.toMap());
+      await db
+          .collection('stock')
+          .doc(product.id)
+          .set(_stamp(initialStock.toMap()));
     }
   }
 
   @override
   Future<void> deleteProduct(String productId) async {
+    await _assertOwned(db.collection('products').doc(productId));
     await db.collection('products').doc(productId).delete();
     await db.collection('stock').doc(productId).delete();
   }
@@ -546,49 +638,171 @@ class FirestoreRepository implements Repository {
   Future<void> upsertBranch(Branch branch) => db
       .collection('branches')
       .doc(branch.id)
-      .set(branch.toMap(), SetOptions(merge: true));
+      .set(_stamp(branch.toMap()), SetOptions(merge: true));
 
   @override
   Future<void> upsertSupplier(Supplier supplier) => db
       .collection('suppliers')
       .doc(supplier.id)
-      .set(supplier.toMap(), SetOptions(merge: true));
+      .set(_stamp(supplier.toMap()), SetOptions(merge: true));
 
   @override
   Future<void> deleteSupplier(String supplierId) =>
-      db.collection('suppliers').doc(supplierId).delete();
+      _assertOwned(db.collection('suppliers').doc(supplierId))
+          .then((_) => db.collection('suppliers').doc(supplierId).delete());
 
   @override
   Future<void> upsertBatch(Batch batch) => db
       .collection('batches')
       .doc(batch.id)
-      .set(batch.toMap(), SetOptions(merge: true));
+      .set(_stamp(batch.toMap()), SetOptions(merge: true));
 
   @override
   Future<void> setStock(Stock stock) =>
-      db.collection('stock').doc(stock.productId).set(stock.toMap());
+      db.collection('stock').doc(stock.productId).set(_stamp(stock.toMap()));
 
   @override
   Future<void> addStockLog(StockLog log) =>
-      db.collection('stockLogs').doc(log.id).set(log.toMap());
+      db.collection('stockLogs').doc(log.id).set(_stamp(log.toMap()));
 
   @override
   Future<void> upsertCustomer(Customer customer) => db
       .collection('customers')
       .doc(customer.id)
-      .set(customer.toMap(), SetOptions(merge: true));
+      .set(_stamp(customer.toMap()), SetOptions(merge: true));
 
   @override
   Future<void> addLedgerEntry(
       String customerId, LedgerEntry entry, double newOutstanding) async {
     final custRef = db.collection('customers').doc(customerId);
     final batch = db.batch();
-    batch.set(custRef.collection('ledgerEntries').doc(), entry.toMap());
+    batch.set(custRef.collection('ledgerEntries').doc(), _stamp(entry.toMap()));
     batch.update(custRef, {'outstandingBalance': newOutstanding});
     await batch.commit();
   }
 
   @override
   Future<void> saveSettings(AppSettings settings) =>
-      db.doc('meta/settings').set(settings.toMap(), SetOptions(merge: true));
+      _meta('settings').set(settings.toMap(), SetOptions(merge: true));
+
+  // ---- multi-store: profile, stores, users, audit ----
+
+  @override
+  Future<void> signOut() async {
+    _context = null;
+    await FirebaseAuth.instance.signOut();
+  }
+
+  @override
+  Future<void> changeOwnPassword(String current, String next) async {
+    final user = FirebaseAuth.instance.currentUser;
+    final email = user?.email;
+    if (user == null || email == null) {
+      throw StateError('auth/no-current-user');
+    }
+    await user.reauthenticateWithCredential(
+        EmailAuthProvider.credential(email: email, password: current));
+    await user.updatePassword(next);
+  }
+
+  @override
+  Future<void> setUserPassword(String uid, String password) async {
+    await FirebaseFunctions.instance
+        .httpsCallable('setUserPassword')
+        .call<void>({'uid': uid, 'password': password});
+  }
+
+  @override
+  Future<Staff?> loadMyProfile() async {
+    final uid = currentUserId;
+    if (uid == null) return null;
+    final doc = await db.collection('staff').doc(uid).get();
+    return doc.exists ? Staff.fromMap(doc.id, doc.data()!) : null;
+  }
+
+  @override
+  Future<Store?> loadStore(String storeId) async {
+    final doc = await db.collection('stores').doc(storeId).get();
+    return doc.exists ? Store.fromMap(doc.id, doc.data()!) : null;
+  }
+
+  @override
+  Future<List<Store>> listStores() async {
+    final snap = await db.collection('stores').get();
+    return [for (final d in snap.docs) Store.fromMap(d.id, d.data())]
+      ..sort((a, b) => a.id.compareTo(b.id));
+  }
+
+  @override
+  Future<void> createStore(Store store, AppSettings settings) async {
+    final ref = db.collection('stores').doc(store.id);
+    await db.runTransaction<void>((tx) async {
+      if ((await tx.get(ref)).exists) {
+        throw StoreExistsException(store.id);
+      }
+      tx.set(ref, store.toMap());
+      tx.set(ref.collection('meta').doc('settings'), settings.toMap());
+      tx.set(ref.collection('meta').doc('counters'),
+          {'bill': 1000, 'purchase': 0, 'draft': 1000});
+    });
+  }
+
+  @override
+  Future<void> updateStore(Store store) =>
+      db.collection('stores').doc(store.id).update({
+        for (final e in store.toMap().entries)
+          if (e.key != 'createdAt' && e.key != 'createdBy' && e.key != 'storeCode')
+            e.key: e.value,
+      });
+
+  @override
+  Future<List<Staff>> listUsers({String? storeId}) async {
+    final q = storeId == null
+        ? db.collection('staff')
+        : db.collection('staff').where('storeId', isEqualTo: storeId);
+    final snap = await q.get();
+    return [for (final d in snap.docs) Staff.fromMap(d.id, d.data())];
+  }
+
+  @override
+  Future<void> saveUser(Staff user) => db
+      .collection('staff')
+      .doc(user.id)
+      .set(user.toMap(), SetOptions(merge: true));
+
+  @override
+  Future<String> createLoginAccount(String email, String password) async {
+    // A second Firebase app instance, so creating the account does not sign
+    // the super admin out of the main one.
+    final app = Firebase.apps.any((a) => a.name == 'pend-user-admin')
+        ? Firebase.app('pend-user-admin')
+        : await Firebase.initializeApp(
+            name: 'pend-user-admin', options: Firebase.app().options);
+    final auth = FirebaseAuth.instanceFor(app: app);
+    final cred = await auth.createUserWithEmailAndPassword(
+        email: email.trim(), password: password);
+    final uid = cred.user!.uid;
+    await auth.signOut();
+    return uid;
+  }
+
+  @override
+  Future<void> addAudit(AuditEntry entry) =>
+      db.collection('auditLogs').add(entry.toMap());
+
+  @override
+  Future<List<AuditEntry>> loadAudit({String? storeId, int limit = 200}) async {
+    Query<Map<String, dynamic>> q = db.collection('auditLogs');
+    if (storeId != null) q = q.where('storeId', isEqualTo: storeId);
+    final snap = await q.orderBy('timestamp', descending: true).limit(limit).get();
+    return [for (final d in snap.docs) AuditEntry.fromMap(d.data())];
+  }
+}
+
+/// A new store's code is already used by another store.
+class StoreExistsException implements Exception {
+  final String storeId;
+  const StoreExistsException(this.storeId);
+  @override
+  String toString() => 'Store code $storeId already exists';
 }

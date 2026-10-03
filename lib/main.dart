@@ -10,6 +10,7 @@ import 'firebase_options.dart';
 import 'models/app_settings.dart';
 import 'state/app_state.dart';
 import 'ui/screens/sign_in_screen.dart';
+import 'ui/screens/super_admin_screens.dart';
 import 'ui/root_shell.dart';
 import 'utils/theme.dart';
 import 'utils/lang.dart';
@@ -83,13 +84,58 @@ class PendApp extends StatelessWidget {
               GlobalCupertinoLocalizations.delegate,
             ],
             home: requireAuthentication
-                ? const _AuthenticationGate()
+                ? const SessionNavigator(child: _AuthenticationGate())
                 : (app.loading ? const _Splash() : const RootShell()),
           );
         },
       ),
     );
   }
+}
+
+/// Closes every screen opened on top of the first one when the session
+/// ends or changes (sign-out, "All stores", opening another store), so the
+/// sign-in page / store list / new store is what shows — not a leftover
+/// Settings screen of the previous session.
+class SessionNavigator extends StatefulWidget {
+  final Widget child;
+  const SessionNavigator({required this.child, super.key});
+  @override
+  State<SessionNavigator> createState() => _SessionNavigatorState();
+}
+
+class _SessionNavigatorState extends State<SessionNavigator> {
+  AppState? _app;
+  int _epoch = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final app = context.read<AppState>();
+    if (!identical(app, _app)) {
+      _app?.removeListener(_changed);
+      _app = app..addListener(_changed);
+      _epoch = app.sessionEpoch;
+    }
+  }
+
+  void _changed() {
+    final epoch = _app!.sessionEpoch;
+    if (epoch == _epoch) return;
+    _epoch = epoch;
+    if (!mounted) return;
+    final nav = Navigator.maybeOf(context);
+    if (nav != null && nav.canPop()) nav.popUntil((r) => r.isFirst);
+  }
+
+  @override
+  void dispose() {
+    _app?.removeListener(_changed);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// Shows sign-in until Firebase Auth has a user, then (re)bootstraps
@@ -121,46 +167,112 @@ class _AuthenticationGateState extends State<_AuthenticationGate> {
           }
           final user = snapshot.data;
           if (user == null) {
+            if (_bootstrappedUid != null) {
+              // Signed out (here or elsewhere): forget the previous user's
+              // store, data and cart before anyone else signs in.
+              WidgetsBinding.instance.addPostFrameCallback(
+                  (_) => context.read<AppState>().clearSession());
+            }
             _bootstrappedUid = null;
             return const SignInScreen();
           }
-          // Kick off (or re-kick off, for a different user) exactly once.
-          // IMPORTANT: this must NOT early-return its own bare _Splash() —
-          // it used to, and that _Splash had no Consumer<AppState> above it,
-          // so AppState.notifyListeners() after bootstrap() finished had no
-          // listener in the current tree to react to. The outer
-          // StreamBuilder only rebuilds on auth *stream* events, not on
-          // AppState changes, so the UI was stuck on that static splash
-          // forever even though bootstrap had genuinely completed — visible
-          // as "[pend] bootstrap finished" in the logs with the screen still
-          // showing "Loading shop data...". Falling through to the single
-          // Consumer<AppState> below on every path fixes that: it's always
-          // present to catch the notifyListeners() that bootstrap fires.
+          // Start (or restart, for a different user) the session exactly
+          // once: profile → active? → role → store → store active? → data.
+          // The Consumer below is always present to catch every
+          // notifyListeners() that follows (see the note in PendApp).
           if (_bootstrappedUid != user.uid) {
             _bootstrappedUid = user.uid;
-            debugPrint('[pend] bootstrapping AppState for uid=${user.uid}');
+            debugPrint('[pend] starting session for uid=${user.uid}');
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              context.read<AppState>().bootstrap().then(
-                    (_) => debugPrint('[pend] bootstrap finished'),
+              context.read<AppState>().startSession().then(
+                    (_) => debugPrint('[pend] session ready'),
                   );
             });
           }
-          return Consumer<AppState>(
-            builder: (context, app, _) {
-              if (app.loading) {
-                return _Splash(
-                    label: tr('दुकानाचा डेटा आणत आहे... · Loading shop data...'));
-              }
-              if (app.bootstrapError != null) {
-                return _DataLoadFailure(error: app.bootstrapError!);
-              }
-              if (app.products.isEmpty) {
-                return const _NoDataYet();
-              }
-              return const RootShell();
-            },
-          );
+          return const SessionScreen();
         },
+      );
+}
+
+/// What a signed-in user sees, by [AppState.session]: the super-admin
+/// dashboard, their store, or why they can't get in. Public so the routing
+/// can be tested without Firebase.
+class SessionScreen extends StatelessWidget {
+  const SessionScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => Consumer<AppState>(
+        builder: (context, app, _) => switch (app.session) {
+              SessionState.none || SessionState.checking => _Splash(
+                  label: tr('खाते तपासत आहे... · Checking your account...')),
+              SessionState.noProfile => _AccountBlocked(
+                  icon: '🔒',
+                  title: L('कर्मचारी खाते नाही', 'No staff profile'),
+                  text: L(
+                      'या लॉगिनसाठी कर्मचारी खाते तयार केलेले नाही. मालकाशी संपर्क करा.',
+                      'This login has no staff profile yet. Please contact the administrator.')),
+              SessionState.disabled => _AccountBlocked(
+                  icon: '⛔',
+                  title: L('खाते बंद आहे', 'Account disabled'),
+                  text: L('तुमचे खाते बंद केले आहे. मालकाशी संपर्क करा.',
+                      'Your account has been disabled. Please contact the administrator.')),
+              SessionState.noStore => _AccountBlocked(
+                  icon: '🏪',
+                  title: L('दुकान नेमलेले नाही', 'No store assigned'),
+                  text: L(
+                      'तुमच्या खात्याला दुकान नेमलेले नाही. मालकाशी संपर्क करा.',
+                      'Your account is not linked to a store. Please contact the administrator.')),
+              SessionState.storeInactive => _AccountBlocked(
+                  key: const ValueKey('store-inactive'),
+                  icon: '🏪',
+                  title: L('दुकान बंद आहे', 'Store inactive'),
+                  text: L('हे दुकान सध्या बंद आहे. कृपया मालकाशी संपर्क करा.',
+                      'This store is currently inactive. Please contact the administrator.')),
+              SessionState.error =>
+                _DataLoadFailure(error: app.bootstrapError ?? 'error'),
+              SessionState.superAdmin => const SuperAdminHome(),
+              SessionState.store => app.loading
+                  ? _Splash(
+                      label: tr('दुकानाचा डेटा आणत आहे... · Loading shop data...'))
+                  : app.bootstrapError != null
+                      ? _DataLoadFailure(error: app.bootstrapError!)
+                      // A new store starts with an empty catalogue — the
+                      // owner adds products from inside the app.
+                      : const RootShell(),
+            },
+      );
+}
+
+/// Signed in, but not allowed in (no profile, disabled, no or inactive
+/// store): says why, and offers sign-out — no store data is loaded.
+class _AccountBlocked extends StatelessWidget {
+  final String icon;
+  final String title;
+  final String text;
+  const _AccountBlocked(
+      {required this.icon, required this.title, required this.text, super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Text(icon, style: const TextStyle(fontSize: 48)),
+              const SizedBox(height: 16),
+              Text(title,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              Text(text, textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              OutlinedButton(
+                onPressed: () => context.read<AppState>().signOut(),
+                child: Text(L('लॉगआउट', 'Sign out')),
+              ),
+            ]),
+          ),
+        ),
       );
 }
 
@@ -194,54 +306,17 @@ class _DataLoadFailure extends StatelessWidget {
                     style: Theme.of(context).textTheme.bodySmall),
                 const SizedBox(height: 16),
                 FilledButton(
-                  onPressed: () => context.read<AppState>().bootstrap(),
+                  onPressed: () {
+                    final app = context.read<AppState>();
+                    app.session == SessionState.store
+                        ? app.bootstrap()
+                        : app.startSession();
+                  },
                   child: Text(L('पुन्हा प्रयत्न', 'Retry')),
                 ),
                 const SizedBox(height: 8),
                 OutlinedButton(
-                  onPressed: () => FirebaseAuth.instance.signOut(),
-                  child: Text(L('लॉगआउट', 'Sign out')),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-}
-
-/// Shown when the core load succeeds but the catalogue is genuinely empty —
-/// distinct from [_DataLoadFailure], which means the load itself failed.
-/// Firestore-only concern: seeding is Admin-SDK-only (see FIREBASE_SEEDING.md),
-/// there is no client-side seeding path to fall back to.
-class _NoDataYet extends StatelessWidget {
-  const _NoDataYet();
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('📦', style: TextStyle(fontSize: 48)),
-                const SizedBox(height: 16),
-                Text(tr('अजून डेटा नाही · No data yet'),
-                    style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 8),
-                Text(
-                  L('कॅटलॉग जोडण्यासाठी Firestore seeder चालवा, मग पुन्हा प्रयत्न करा.',
-                      'Run the Firestore seeder (tools/seed_firestore.mjs) to add the catalogue, then retry.'),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: () => context.read<AppState>().bootstrap(),
-                  child: Text(L('पुन्हा प्रयत्न', 'Retry')),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton(
-                  onPressed: () => FirebaseAuth.instance.signOut(),
+                  onPressed: () => context.read<AppState>().signOut(),
                   child: Text(L('लॉगआउट', 'Sign out')),
                 ),
               ],

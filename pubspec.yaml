@@ -39,6 +39,7 @@ dependencies:
   # for the separate "Share" action (send the file to another app).
   file_picker: ^13.1.0
   url_launcher: ^6.3.2      # "Send on WhatsApp" — opens a pre-filled wa.me chat
+  cloud_functions: ^6.5.0
 
   # --- Firebase (backend). Uncomment after `flutterfire configure`. ---
   # firebase_core: ^3.6.0
@@ -53,6 +54,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  fake_cloud_firestore: ^4.3.0
 
 flutter:
   uses-material-design: true
